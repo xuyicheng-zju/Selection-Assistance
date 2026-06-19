@@ -15,11 +15,11 @@ import DOMPurify from "dompurify";
 // 用实例而非全局，避免多次 setOptions 互相污染
 const marked = new Marked({ gfm: true, breaks: true });
 
-// KaTeX 扩展：处理 $...$ 和 $$...$$，输出 HTML+CSS（不用 MathML/SVG，规避消毒麻烦）
+// KaTeX 扩展：处理 $...$ 和 $...$，输出纯 HTML+CSS（不用 MathML/SVG，规避 DOMPurify 消毒麻烦）
 marked.use(
   markedKatex({
     throwOnError: false, // 公式语法错误时不抛异常，原样显示
-    output: "htmlAndMathml", // KaTeX 推荐：HTML 为主 + MathML 给无障碍
+    output: "html", // 纯 HTML（span + class），DOMPurify 友好
   })
 );
 
@@ -32,26 +32,9 @@ export function renderMarkdown(md: string): string {
     // 解析失败时转义后原样返回，避免白屏
     raw = `<p>${escapeHtml(md)}</p>`;
   }
+  // DOMPurify：放行 style（KaTeX 内联定位）+ class，其余用默认白名单即可
   return DOMPurify.sanitize(raw, {
-    ADD_TAGS: [
-      // KaTeX 输出用到的标签
-      "math", "semantics", "mrow", "mi", "mo", "mn", "msup", "msub",
-      "mfrac", "msqrt", "mroot", "mtable", "mtr", "mtd", "mtext",
-      "annotation", "mover", "munder", "munderover", "mspace", "mstyle",
-    ],
-    ADD_ATTR: [
-      // KaTeX/SVG/MathML 需要的属性（在默认白名单基础上追加）
-      "style", "xmlns", "viewbox", "width", "height", "d", "fill",
-      "stroke", "stroke-width", "x", "y", "x1", "y1", "x2", "y2",
-      "cx", "cy", "r", "rx", "ry", "transform", "id", "xlink",
-      "encoding", "mathvariant", "stretchy", "fence", "separator",
-      "accent", "lspace", "rspace", "movablelimits", "minsize", "maxsize",
-      "columnalign", "rowalign", "columnspacing", "rowspacing",
-      "columnlines", "rowlines", "frame", "framespacing", "equalrows",
-      "equalcolumns", "side", "depth", "lquote", "rquote", "bevelled",
-      "linethickness", "notation", "align", "dir", "displaystyle",
-      "scriptlevel", "href",
-    ],
+    ADD_ATTR: ["target", "style"],
   });
 }
 
