@@ -1,0 +1,42 @@
+{
+  "name": "selection-assistant-frontend",
+  "version": "0.1.0",
+  "description": "豆包式划词浮窗 —— Electron + React，对接 selection-assistant/backend",
+  "main": "dist-electron/main.js",
+  "author": "doubao-selection",
+  "license": "MIT",
+  "scripts": {
+    "dev": "concurrently -k -n vite,elec \"vite\" \"wait-on tcp:5173 && tsc -p tsconfig.electron.json && cross-env NODE_ENV=development electron . --no-sandbox\"",
+    "dev:renderer": "vite",
+    "build": "tsc -p tsconfig.electron.json && vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "pack": "npm run build && electron-builder --dir",
+    "dist": "npm run build && electron-builder"
+  },
+  "dependencies": {
+    "dompurify": "^3.1.6",
+    "marked": "^14.1.2"
+  },
+  "devDependencies": {
+    "@types/dompurify": "^3.0.5",
+    "@types/node": "^20.14.0",
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^9.0.1",
+    "cross-env": "^7.0.3",
+    "electron": "^31.4.0",
+    "electron-builder": "^24.13.3",
+    "postcss": "^8.4.47",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwindcss": "^3.4.12",
+    "tree-kill": "^1.2.2",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.6",
+    "vitest": "^2.1.1",
+    "wait-on": "^8.0.1"
+  }
+}

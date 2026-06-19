@@ -1,0 +1,26 @@
+# ===== Python (backend) =====
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# ===== Node (frontend) =====
+node_modules/
+dist/
+dist-electron/
+release/
+*.log
+.DS_Store
+
+# ===== IDE =====
+.vscode/
+.idea/
+*.swp

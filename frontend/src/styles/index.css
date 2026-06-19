@@ -1,0 +1,93 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 浮窗无边框圆角 + 透明外层 */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: theme("fontFamily.sans");
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+/* 无框窗口拖动：标题栏可拖，内部交互元素不拖 */
+.draggable {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* 浮窗内容区允许选择/复制 */
+.selectable {
+  user-select: text;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.28);
+}
+
+/* 音标斜体灰字 */
+.phonetic-ipa {
+  font-style: italic;
+  color: #475569;
+}
+
+/* Markdown 结果排版 */
+.md-body {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #1f2937;
+}
+.md-body h1,
+.md-body h2,
+.md-body h3 {
+  font-weight: 600;
+  margin: 0.6em 0 0.3em;
+}
+.md-body h1 { font-size: 1.15em; }
+.md-body h2 { font-size: 1.08em; }
+.md-body h3 { font-size: 1em; }
+.md-body p { margin: 0.4em 0; }
+.md-body ul,
+.md-body ol {
+  margin: 0.4em 0;
+  padding-left: 1.4em;
+}
+.md-body li { margin: 0.15em 0; }
+.md-body code {
+  background: #f1f5f9;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  font-size: 0.9em;
+  font-family: "SFMono-Regular", Consolas, monospace;
+}
+.md-body pre {
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 0.7em 0.9em;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.md-body pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+.md-body strong { font-weight: 600; }
+.md-body a {
+  color: #2563eb;
+  text-decoration: underline;
+}
