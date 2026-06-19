@@ -6,7 +6,7 @@
 
 ## 💡 为什么做这个（Motivation）
 
-如果你从 Windows/Mac 切到 Linux，会发现一个扎心的现实：**Linux 上几乎没有一款好用的划词翻译工具。**
+如果你从 Windows/Mac 切到 Linux，会发现一个扎心的现实：**Linux 上几乎没有一款好用的划词一键翻译/解释工具。**
 
 - Windows 上有有道、必应、豆包、Quicker，选中即弹；
 - macOS 上有 Bob、Easydict，体验丝滑；
@@ -203,7 +203,3 @@ cd frontend && npx tsc --noEmit                   # 类型检查
 - **跨应用划词**：全局热键 + xdotool 自动复制，与 VSCode 等原生弹窗共存
 
 ---
-
-## 📄 License
-
-MIT
