@@ -204,6 +204,8 @@ cd frontend && npx tsc --noEmit                   # 类型检查
 
 ---
 
-## 📄 License
+cd /home/user/workspace/selection-assistant/backend
+uv run python -m uvicorn app.main:app --reload --port 8000
 
-MIT
+cd /home/user/workspace/selection-assistant/frontend
+npm run dev

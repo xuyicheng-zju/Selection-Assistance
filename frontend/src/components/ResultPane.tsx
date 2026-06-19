@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { renderMarkdown } from "../lib/markdown";
+// KaTeX 公式样式（行内 $...$ 与块级 $...$）
+import "katex/dist/katex.min.css";
 
 interface Props {
   /** 累积的内容（流式时持续增长） */
