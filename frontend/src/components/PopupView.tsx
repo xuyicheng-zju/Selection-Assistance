@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Action } from "../lib/types";
 import { useSelectionAction } from "../hooks/useSelectionAction";
 import { PhoneticsBar } from "./PhoneticsBar";
-import { ResultPane } from "./ResultPane";
+import { MessageList } from "./MessageList";
 import { ThinkingPanel } from "./ThinkingPanel";
 import { ErrorBanner } from "./ErrorBanner";
 
@@ -102,7 +102,7 @@ export function PopupView({ text, initialAction, onClose }: Props) {
         </div>
       </div>
 
-      {/* 音标 */}
+      {/* 音标（仅在有音标时显示，首条结果） */}
       <PhoneticsBar phonetics={sa.phonetics} />
 
       {/* 思考过程（开启思考模式时默认展开） */}
@@ -115,10 +115,13 @@ export function PopupView({ text, initialAction, onClose }: Props) {
       {/* 错误 */}
       <ErrorBanner error={sa.error} />
 
-      {/* 结果 */}
-      <ResultPane content={sa.content} streaming={sa.phase === "streaming"} />
-
-      {/* 追问历史快览（可滚动）省略：直接在结果区累积显示最近一轮 */}
+      {/* 消息列表（历史 + 当前流式） */}
+      <MessageList
+        history={sa.history}
+        streamingContent={sa.content}
+        streaming={sa.phase === "streaming"}
+        streamingRole="assistant"
+      />
 
       {/* 追问输入框 */}
       <div className="border-t border-gray-200 p-2 bg-white">
@@ -139,10 +142,24 @@ export function PopupView({ text, initialAction, onClose }: Props) {
           >
             {sa.phase === "streaming" ? "…" : "发送"}
           </button>
+          <button
+            onClick={() => {
+              if (sa.phase === "streaming") return;
+              if (sa.history.length === 0) return;
+              if (confirm("开新会话将清空当前对话历史，确定？")) {
+                sa.reset();
+              }
+            }}
+            disabled={sa.history.length === 0 || sa.phase === "streaming"}
+            className="shrink-0 px-2.5 py-2 rounded-lg bg-gray-100 text-gray-600 text-xs font-medium hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            title="新开会话（清空历史）"
+          >
+            新会话
+          </button>
         </div>
         {sa.history.length > 0 && (
           <div className="mt-1 text-[10px] text-gray-400 px-1">
-            已对话 {Math.floor(sa.history.length / 2)} 轮 · 可继续追问
+            已对话 {Math.floor(sa.history.length / 2)} 轮 · 点「新会话」清空重来
           </div>
         )}
       </div>

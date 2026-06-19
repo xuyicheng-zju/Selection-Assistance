@@ -88,7 +88,9 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
       setPhonetics(null);
       setThinking("");
       setError(null);
-      setHistory([]);
+      // 首条：把「动作: 选中文本」作为 user 消息，让对话历史连贯
+      const actionLabel = action === "translate" ? "翻译" : "解释";
+      setHistory([{ role: "user", content: `${actionLabel}：${text}` }]);
       setInitialAction(action);
       selectedRef.current = text;
 
@@ -118,7 +120,7 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
             setPhase("done");
             // 把首条结果存入历史（assistant），便于追问
             setContent((cur) => {
-              setHistory([{ role: "assistant", content: cur }]);
+              setHistory((h) => [...h, { role: "assistant", content: cur }]);
               return cur;
             });
           },
