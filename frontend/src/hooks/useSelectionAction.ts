@@ -118,10 +118,10 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
           onDelta: (delta) => setContent((s) => s + delta),
           onDone: () => {
             setPhase("done");
-            // 把首条结果存入历史（assistant），便于追问
+            // 把首条结果存入历史（assistant），清空 content 避免重复显示
             setContent((cur) => {
-              setHistory((h) => [...h, { role: "assistant", content: cur }]);
-              return cur;
+              if (cur) setHistory((h) => [...h, { role: "assistant", content: cur }]);
+              return "";
             });
           },
           onError: ({ code, message }) => {
@@ -166,9 +166,10 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
           onDelta: (delta) => setContent((s) => s + delta),
           onDone: () => {
             setPhase("done");
+            // 存入历史后清空 content，避免与 history 重复显示
             setContent((cur) => {
-              setHistory((h) => [...h, { role: "assistant", content: cur }]);
-              return cur;
+              if (cur) setHistory((h) => [...h, { role: "assistant", content: cur }]);
+              return "";
             });
           },
           onError: ({ code, message }) => {
