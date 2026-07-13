@@ -1,6 +1,6 @@
 # Selection-Assistance
 
-> Linux 桌面上的「豆包式」划词助手 —— 选中即翻译/解释，带音标、多轮对话追问、LaTeX 公式渲染、看图 OCR，深度适配 Linux 工作流。
+> Linux 桌面上的现代划词助手：选中即翻译/解释，支持音标、多轮追问、LaTeX、流式输出与多模态 API，专为 Linux 阅读、科研和开发工作流设计。
 
 ---
 
@@ -27,6 +27,8 @@
 | 遇到代码报错截图、公式图片无法识别 | 多模态自动路由 Qwen-VL，截图 OCR / 看图解释 / 图文问答 |
 | 现有工具翻译质量差、不懂上下文 | DeepSeek-v4-pro 驱动，带思考模式，理解语境 |
 | 英文单词没音标、没词性 | 三级音标混合链（词典 API + 本地 + LLM 兜底） |
+| 高吞吐模型输出时界面掉帧、滚动乱跳 | SSE token 合帧渲染、Markdown 缓存、智能贴底，保持连续流畅 |
+| 没选中文字却误用旧剪贴板 | 新选区哨兵检测；空选区只唤回已有会话，绝不自动发请求 |
 
 ---
 
@@ -34,16 +36,17 @@
 
 ### 划词翻译 / 解释
 - **双热键直达**：`Ctrl+Shift+D` 直接翻译，`Ctrl+Shift+E` 直接解释，无需二次点击
-- **流式打字机**：豆包式逐字显示，先出音标再出正文
+- **丝滑流式输出**：先出音标再出正文；token 按浏览器节奏合并刷新，避免高吞吐时频繁重排
 - **带音标**：英文单词出 IPA / 英音 / 美音，中文出带调拼音
 
 ### 多轮对话追问（核心）
 - 浮窗内**聊天式 UI**：完整对话历史保留（user/assistant 气泡），新消息不覆盖旧消息
 - 可继续提问：「换个说法」「举个例句」「还有什么意思」「更通俗的解释」
-- **新会话按钮**：一键清空历史，重新开始（不会无限追加）
+- **空选区唤回**：已经有会话时，未选文字再按快捷键只会唤回窗口，方便继续 Chat，不会重跑旧内容
+- **新会话按钮**：清空历史并重新处理当前选区，不会无限追加
 
 ### 思考模式
-- DeepSeek `enable_thinking`，浮窗右上角 **💡 一键开关**
+- DeepSeek `enable_thinking`，浮窗右上角「深度」按钮一键开关
 - 默认关闭（快），开启后显示 AI 推理过程（可折叠）
 - 设置持久化，请求级 `X-Enable-Thinking` header 控制
 
@@ -61,8 +64,10 @@
 - 与 VSCode / 终端 / 浏览器自带弹窗**共存**而非互斥
 
 ### 浮窗体验
-- 无框圆角浮窗，标题栏可拖拽，alwaysOnTop 置顶
-- Markdown 渲染（代码块、列表、表格、加粗）
+- 冷灰蓝「聚焦镜片」视觉语言，无框圆角、可拖拽、alwaysOnTop 置顶
+- Markdown 渲染（代码块、列表、表格、加粗）与流式呼吸光标
+- 历史消息缓存渲染；用户阅读上文时不抢滚动位置，回到底部后自动继续跟随
+- 键盘焦点清晰，并尊重系统 `prefers-reduced-motion` 设置
 
 ---
 
@@ -73,7 +78,7 @@
 | 系统 | 支持度 | 说明 |
 |------|--------|------|
 | **Linux (X11)** | ✅ 完全支持 | 主要目标平台。自动复制选区需 `xdotool` |
-| Linux (Wayland) | ⚠️ 部分支持 | 划词热键可用，但 `xdotool` 在 Wayland 下失效，需手动 Ctrl+C |
+| Linux (Wayland) | ⚠️ 有限支持 | `xdotool` 通常无法读取原生 Wayland 应用选区；XWayland 应用视桌面环境而定 |
 | macOS | ⚠️ 未测试 | Electron 跨平台，热键改 `Cmd` 前缀理论上可用 |
 | Windows | ⚠️ 未测试 | 需把 `xdotool` 替换为 PowerShell 模拟按键 |
 
@@ -86,7 +91,7 @@
 | VSCode / JetBrains 等 IDE | 选中 → `Ctrl+Shift+D` | ✅ 自动复制并翻译（与 IDE 自带划词弹窗共存） |
 | 终端 (GNOME Terminal / Konsole / Alacritty) | 选中 → `Ctrl+Shift+D` | ✅ 终端选中即复制，热键直接读到 |
 | Chrome / Firefox / Edge | 选中 → `Ctrl+Shift+D` | ✅ 自动复制 |
-| PDF 阅读器 (Evince / Okular) | 选中 → `Ctrl+Shift+D` | ✅ 自动复制（部分受保护文档需手动 Ctrl+C） |
+| PDF 阅读器 (Evince / Okular) | 选中 → `Ctrl+Shift+D` | ✅ 普通文本可自动复制；禁止复制的受保护文档不支持 |
 | 论文阅读器 (Zotero) | 选中 → `Ctrl+Shift+D` | ✅ |
 | 任意文本框 | 选中 → `Ctrl+Shift+D` | ✅ |
 
@@ -148,21 +153,22 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 ### 配置后端
 
 ```bash
-cd selection-assistant/backend
+git clone https://github.com/xuyicheng-zju/Selection-Assistance.git
+cd Selection-Assistance/backend
 cp .env.example .env
 # 编辑 .env，填入 DASHSCOPE_API_KEY（百炼控制台 → API-KEY 管理）
-uv sync
+uv sync --extra dev
 ```
 
 ### 运行（开发模式）
 
 ```bash
 # 终端 1：后端
-cd backend
+cd Selection-Assistance/backend
 uv run python -m uvicorn app.main:app --reload --port 8000
 
 # 终端 2：前端
-cd frontend
+cd Selection-Assistance/frontend
 npm install
 npm run dev
 ```
@@ -184,9 +190,10 @@ npm run dist       # 输出到 release/，双击运行自动起后端
 |------|------|
 | 选中文字 + `Ctrl+Shift+D` | 直接翻译（流式展示） |
 | 选中文字 + `Ctrl+Shift+E` | 直接解释 |
+| 未选文字 + 任一快捷键 | 有历史时唤回原会话；无历史时静默，不发送模型请求 |
 | 浮窗内输入 + Enter | 多轮追问（历史保留） |
-| 点「新会话」按钮 | 清空对话历史，重新开始 |
-| 点 💡 按钮 | 开关思考模式 |
+| 点「新会话」按钮 | 清空历史并重新处理当前选区 |
+| 点「深度」按钮 | 开关思考模式 |
 | 拖动浮窗顶部 | 移动浮窗位置 |
 
 > 热键可在主窗口「设置」里自定义。
@@ -243,8 +250,11 @@ cd frontend && npx tsc --noEmit                   # 类型检查
 
 - **统一百炼接入**：DeepSeek 与 Qwen-VL 共用一个 Key 与端点
 - **同端点自动路由**：按「有无图片」自动切模型，前端零感知
-- **思考模式可控**：默认关闭（快），浮窗 💡 一键开（深），请求级 `X-Enable-Thinking` header 控制
+- **思考模式可控**：默认关闭（快），浮窗「深度」按钮一键开启，请求级 `X-Enable-Thinking` header 控制
 - **聊天式历史**：前端维护完整对话，气泡 UI，支持新开会话而非无限追加
+- **流式性能治理**：高频 SSE delta 先写入缓冲，再以约 30 FPS 合并提交；完成消息缓存 Markdown 结果
+- **不打断阅读**：仅在消息列表贴底时跟随输出，用户上滚后不会被强制拉回底部
+- **空选区安全**：哨兵检测区分本次选区与旧剪贴板；没有新文本时不发请求，只按需唤回已有会话
 - **LaTeX 渲染**：KaTeX `output:html` + DOMPurify 放行 style，流式安全
 - **音标三级兜底**：词典 API → 本地 eng_to_ipa/pypinyin → LLM 生成，任一失败不阻塞
 - **POST SSE**：流式端点是 POST，自写 `fetch + ReadableStream` 解析器

@@ -14,21 +14,23 @@ export function ThinkingPanel({ content, streaming, defaultOpen = false }: Props
   if (!content) return null;
 
   return (
-    <div className="border-b border-gray-100">
+    <div className="thinking-panel">
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center gap-1.5 px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-50 transition-colors"
+        className="thinking-trigger"
+        aria-expanded={open}
       >
         <span
-          className={`transition-transform ${open ? "rotate-90" : ""}`}
+          className={`thinking-chevron ${open ? "is-open" : ""}`}
         >
-          ▸
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 4 4 4-4 4" /></svg>
         </span>
-        <span>{streaming ? "思考中…" : "思考过程"}</span>
-        <span className="text-gray-300">({content.length} 字)</span>
+        <span className="thinking-glyph">✦</span>
+        <span>{streaming ? "正在梳理思路" : "思考过程"}</span>
+        <span className="thinking-count">{content.length} 字</span>
       </button>
       {open && (
-        <div className="selectable px-3 pb-2 text-xs text-gray-400 leading-relaxed whitespace-pre-wrap max-h-40 overflow-y-auto bg-gray-50/50">
+        <div className="selectable thinking-content">
           {content}
         </div>
       )}

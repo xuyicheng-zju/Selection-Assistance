@@ -8,18 +8,19 @@ function ActionButtonApp() {
   };
 
   return (
-    <div className="flex items-center gap-1 h-full w-full px-1">
+    <div className="action-popover">
       <button
         onClick={() => trigger("translate")}
-        className="flex-1 h-8 rounded-md bg-white/90 backdrop-blur shadow-md border border-gray-200 text-xs font-medium text-gray-700 hover:bg-brand-50 hover:text-brand-600 hover:border-brand-300 transition-colors"
+        className="action-choice"
       >
-        翻译
+        <span>译</span>翻译
       </button>
+      <i />
       <button
         onClick={() => trigger("explain")}
-        className="flex-1 h-8 rounded-md bg-white/90 backdrop-blur shadow-md border border-gray-200 text-xs font-medium text-gray-700 hover:bg-brand-50 hover:text-brand-600 hover:border-brand-300 transition-colors"
+        className="action-choice"
       >
-        解释
+        <span>析</span>解释
       </button>
     </div>
   );

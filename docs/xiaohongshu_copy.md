@@ -1,58 +1,87 @@
-# 小红书 PR 文案
+# 小红书发布宣传稿｜Selection-Assistance
 
----
+## 标题备选
 
-## 标题（3 选 1，建议用第 1 个）
+1. Linux 终于有一款顺手的划词助手了｜开源免费
+2. 读论文不用反复切网页了：我给 Linux 做了个划词翻译
+3. 开源了！Linux 划词翻译 + 连续追问，DeepSeek 驱动
 
-1. 🚨救命！Linux终于有豆包同款划词翻译了！选中即译+多轮追问+看图OCR🔥
-2. 从Win/Mac换到Linux后最崩溃的事…现在终于解决了😭
-3. 开源｜在Linux复刻豆包桌面版划词助手，DeepSeek驱动⚡
+推荐第 1 个，信息直接，也方便搜索。
 
----
+## 封面文字
+
+主标题：
+
+> Linux 划词助手
+
+副标题：
+
+> 选中即译 · 连续追问 · 开源免费
+
+角标：
+
+> DeepSeek + Electron
 
 ## 正文
 
-姐妹们/兄弟们！！
-用Linux做科研/敲代码的痛谁懂啊🆘
+从 Windows / macOS 换到 Linux 之后，我一直缺一个真正顺手的划词工具。
 
-Windows有有道、Mac有Bob，选中即弹翻译丝滑得不行
-结果换到Linux……😅 星火商店里翻烂了，能用的划词工具寥寥无几，还都在VSCode/终端里直接失效
+读论文、看英文文档、查代码报错时，最常见的流程居然还是：
 
-每次读英文论文/查报错，只能：Ctrl+C → 切浏览器 → 粘贴 → 翻译 → 切回来
-一天重复几百次，人都麻了💥
+选中 → 复制 → 切浏览器 → 粘贴 → 翻译 → 再切回来。
 
-所以我自己搓了一个！开源免费👇
+一天重复几十次，非常打断思路。
 
-✨ **Selection-Assistance｜Linux划词助手**
+所以我做了 **Selection-Assistance**，一个面向 Linux 桌面的开源划词助手。
 
-🎯 解决了什么：
-✅ 选中文字按 `Ctrl+Shift+D` → 直接弹翻译浮窗（带音标IPA/英音/美音/拼音）
-✅ `Ctrl+Shift+E` → 直接出解释（定义+词性+例句+近义词）
-✅ 翻译完还能继续追问！"换个说法""举个例句""还有什么意思"随便问💬
-✅ 截图也能识别！代码报错截图、公式图，丢进去直接解释（自动切Qwen-VL多模态）
-✅ DeepSeek思考模式，💡一键开关，能看到AI怎么推理的
+现在可以这样用：
 
-💻 最爽的是兼容性：
-VSCode / 终端 / Chrome / PDF / Zotero 全都能用！
-原理是全局热键+自动复制选区，跟应用自带弹窗共存不打架
-再也不用跟VSCode的划词弹窗抢了😭感动
+- ✨ 选中文字，按 `Ctrl + Shift + D`，直接翻译
+- ✨ 按 `Ctrl + Shift + E`，直接解释概念、术语和代码
+- ✨ 英文单词自动显示 IPA / 英音 / 美音，中文支持拼音
+- ✨ 翻译完可以继续追问：“举个例子”“换个说法”“这段代码是什么意思”
+- ✨ Markdown、代码块和 LaTeX 公式可以直接渲染
+- ✨ DeepSeek 深度思考可随时开关
+- ✨ 后端还提供 Qwen-VL 的 OCR / 看图解释能力
 
-🧠 技术栈（给会敲码的姐妹）：
-• 后端：FastAPI + DeepSeek-v4-pro + Qwen-VL（统一走阿里云百炼，一个key搞定）
-• 前端：Electron + React + Tailwind，豆包同款流式打字机效果
-• 全局热键 + xdotool 自动复制，跨应用通杀
-• 后端42个测试 + 前端15个测试全过✅
+这次还专门重做了 UI 和流式性能：
 
-🌍 支持：Linux X11 完全支持（Ubuntu/Debian推荐），Wayland部分支持，Mac/Win未测但理论上能跑
+- 新浮窗采用冷灰蓝的“聚焦镜片”设计，信息更清楚；
+- 模型 token 会按浏览器刷新节奏合并渲染，高吞吐时不再疯狂重排；
+- 已完成消息会缓存 Markdown，长对话更轻；
+- 自动滚动只在你停留底部时跟随，上滚看内容不会被抢位置；
+- 没有选中文字时，不会误用旧剪贴板，更不会把报错提示发给模型；
+- 已经有对话时，空选区按快捷键只会唤回原窗口，方便继续 Chat。
 
-📦 开源地址（GitHub）：
-搜「Selection-Assistance」或主页见，MIT协议，欢迎star⭐和PR！
+我最在意的是跨应用体验。目前在 Linux X11 下，通过全局热键 + `xdotool` 自动复制选区，VSCode、JetBrains、Chrome、终端、PDF 阅读器和 Zotero 都可以走同一套操作。
 
-📚 已经写好详细README，clone下来照着跑就行，配个百炼API key就能用
+技术栈：
 
----
+- Electron + React + TypeScript
+- FastAPI + SSE 流式输出
+- DeepSeek-v4-pro + Qwen-VL
+- marked + KaTeX + DOMPurify
+- 后端 42 项测试、前端 20 项测试
 
-💬 用Linux的姐妹举个手🙋‍♀️ 你们平时怎么查单词翻译的？评论区聊聊
-要是装的时候有问题也可以问，我看到就回～
+项目已按 MIT 协议开源：
 
-#Linux #程序员日常 #开源项目 #划词翻译 #DeepSeek #效率工具 #科研狗 #代码 #Linux桌面 #翻译软件 #开发者工具
+https://github.com/xuyicheng-zju/Selection-Assistance
+
+如果你也在 Linux 上读论文、写代码或者啃英文文档，欢迎试试。觉得有帮助的话，可以点一个 Star；遇到兼容问题也欢迎提 Issue。
+
+说明：目前主要支持 Linux X11。Wayland 对全局模拟复制有限制，XWayland 应用的可用性取决于桌面环境。
+
+## 置顶评论
+
+安装要点：需要 Node.js 20+、Python 3.11+、`uv` 和 `xdotool`，再配置一个阿里云百炼 `DASHSCOPE_API_KEY`。完整命令已经写进 GitHub README；安装卡住可以在评论区或 Issue 里告诉我系统版本和桌面环境。
+
+## 标签
+
+#Linux #Linux桌面 #开源项目 #划词翻译 #DeepSeek #程序员工具 #科研工具 #效率工具 #Electron #React #Python #GitHub
+
+## 发布建议
+
+- 首图放新版浮窗，选区示例建议使用 `serendipity` 或一段论文摘要。
+- 第二张展示 VSCode / PDF 中“选中 → 快捷键 → 浮窗”的连续过程。
+- 第三张展示多轮追问与 LaTeX 渲染。
+- 最后一张放 GitHub 仓库名、安装依赖和 X11 支持说明。

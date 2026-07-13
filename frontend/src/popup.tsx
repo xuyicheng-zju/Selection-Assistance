@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { Action } from "./lib/types";
 import type { TriggerPayload } from "../electron/ipc";
@@ -6,19 +6,26 @@ import { PopupView } from "./components/PopupView";
 import "./styles/index.css";
 
 interface TriggerState {
+  id: number;
   action: Action;
   text: string;
 }
 
 function PopupApp() {
   const [trigger, setTrigger] = useState<TriggerState | null>(null);
+  const triggerIdRef = useRef(0);
 
   useEffect(() => {
     // 监听主进程 ACTION_RUN
     const api = window.doubaoAPI;
     if (!api) return;
     const off = api.onTriggerAction((payload: TriggerPayload) => {
-      setTrigger({ action: payload.action, text: payload.text });
+      if (!payload.text.trim()) {
+        api.closeWindow();
+        return;
+      }
+      triggerIdRef.current += 1;
+      setTrigger({ id: triggerIdRef.current, action: payload.action, text: payload.text });
     });
     return off;
   }, []);
@@ -33,7 +40,7 @@ function PopupApp() {
 
   return (
     <PopupView
-      key={trigger.text + trigger.action}
+      key={trigger.id}
       text={trigger.text}
       initialAction={trigger.action}
       onClose={() => window.doubaoAPI?.closeWindow()}

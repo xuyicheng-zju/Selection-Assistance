@@ -47,6 +47,35 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
   // 是否开启 DeepSeek 思考模式（从主进程设置读，默认 false）
   const [thinkingEnabled, setThinkingEnabled] = useState(false);
 
+  // SSE 可能以远高于屏幕刷新率的频率吐 token。先写入 ref，再按约 30fps
+  // 合并刷新 React，避免每个 token 都触发整棵消息树与 Markdown 重排。
+  const contentRef = useRef("");
+  const thinkingRef = useRef("");
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestIdRef = useRef(0);
+
+  const cancelScheduledFlush = useCallback(() => {
+    if (flushTimerRef.current !== null) {
+      clearTimeout(flushTimerRef.current);
+      flushTimerRef.current = null;
+    }
+  }, []);
+
+  const flushStream = useCallback(() => {
+    cancelScheduledFlush();
+    setContent(contentRef.current);
+    setThinking(thinkingRef.current);
+  }, [cancelScheduledFlush]);
+
+  const scheduleFlush = useCallback(() => {
+    if (flushTimerRef.current !== null) return;
+    flushTimerRef.current = setTimeout(() => {
+      flushTimerRef.current = null;
+      setContent(contentRef.current);
+      setThinking(thinkingRef.current);
+    }, 32);
+  }, []);
+
   useEffect(() => {
     window.doubaoAPI
       ?.getSettings()
@@ -65,13 +94,17 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
   }, [selectedText]);
 
   const abort = useCallback(() => {
+    requestIdRef.current += 1;
     abortRef.current?.abort();
     abortRef.current = null;
-  }, []);
+    cancelScheduledFlush();
+  }, [cancelScheduledFlush]);
 
   const reset = useCallback(() => {
     abort();
     setPhase("idle");
+    contentRef.current = "";
+    thinkingRef.current = "";
     setContent("");
     setPhonetics(null);
     setThinking("");
@@ -82,8 +115,12 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
 
   const runInitial = useCallback(
     async (action: Action, text: string) => {
+      if (!text.trim()) return;
       abort();
       setPhase("streaming");
+      const requestId = requestIdRef.current;
+      contentRef.current = "";
+      thinkingRef.current = "";
       setContent("");
       setPhonetics(null);
       setThinking("");
@@ -114,17 +151,31 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
           onPhonetics: (d) => {
             setPhonetics(d.phonetics as Phonetics);
           },
-          onThinking: (delta) => setThinking((s) => s + delta),
-          onDelta: (delta) => setContent((s) => s + delta),
+          onThinking: (delta) => {
+            if (requestId !== requestIdRef.current) return;
+            thinkingRef.current += delta;
+            scheduleFlush();
+          },
+          onDelta: (delta) => {
+            if (requestId !== requestIdRef.current) return;
+            contentRef.current += delta;
+            scheduleFlush();
+          },
           onDone: () => {
+            if (requestId !== requestIdRef.current) return;
+            cancelScheduledFlush();
             setPhase("done");
-            // 把首条结果存入历史（assistant），清空 content 避免重复显示
-            setContent((cur) => {
-              if (cur) setHistory((h) => [...h, { role: "assistant", content: cur }]);
-              return "";
-            });
+            const completed = contentRef.current;
+            if (completed) {
+              setHistory((h) => [...h, { role: "assistant", content: completed }]);
+            }
+            setThinking(thinkingRef.current);
+            setContent("");
+            contentRef.current = "";
           },
           onError: ({ code, message }) => {
+            if (requestId !== requestIdRef.current) return;
+            flushStream();
             setError(new BackendError(message, code, 0));
             setPhase("error");
           },
@@ -132,7 +183,7 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
         { signal: controller.signal, headers: thinkingHeaders() }
       );
     },
-    [abort, thinkingEnabled]
+    [abort, cancelScheduledFlush, flushStream, scheduleFlush, thinkingEnabled]
   );
 
   const ask = useCallback(
@@ -140,6 +191,9 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
       if (!question.trim() || !initialAction) return;
       abort();
       setPhase("streaming");
+      const requestId = requestIdRef.current;
+      contentRef.current = "";
+      thinkingRef.current = "";
       setThinking("");
       setError(null);
 
@@ -162,17 +216,31 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
         chatStreamUrl(),
         body,
         {
-          onThinking: (delta) => setThinking((s) => s + delta),
-          onDelta: (delta) => setContent((s) => s + delta),
+          onThinking: (delta) => {
+            if (requestId !== requestIdRef.current) return;
+            thinkingRef.current += delta;
+            scheduleFlush();
+          },
+          onDelta: (delta) => {
+            if (requestId !== requestIdRef.current) return;
+            contentRef.current += delta;
+            scheduleFlush();
+          },
           onDone: () => {
+            if (requestId !== requestIdRef.current) return;
+            cancelScheduledFlush();
             setPhase("done");
-            // 存入历史后清空 content，避免与 history 重复显示
-            setContent((cur) => {
-              if (cur) setHistory((h) => [...h, { role: "assistant", content: cur }]);
-              return "";
-            });
+            const completed = contentRef.current;
+            if (completed) {
+              setHistory((h) => [...h, { role: "assistant", content: completed }]);
+            }
+            setThinking(thinkingRef.current);
+            setContent("");
+            contentRef.current = "";
           },
           onError: ({ code, message }) => {
+            if (requestId !== requestIdRef.current) return;
+            flushStream();
             setError(new BackendError(message, code, 0));
             setPhase("error");
           },
@@ -180,7 +248,7 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
         { signal: controller.signal, headers: thinkingHeaders() }
       );
     },
-    [abort, history, initialAction, thinkingEnabled]
+    [abort, cancelScheduledFlush, flushStream, history, initialAction, scheduleFlush, thinkingEnabled]
   );
 
   // 切换思考模式：更新本地 state + 持久化到主进程设置
@@ -191,6 +259,14 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
       return next;
     });
   }, []);
+
+  useEffect(() => {
+    return () => {
+      requestIdRef.current += 1;
+      abortRef.current?.abort();
+      cancelScheduledFlush();
+    };
+  }, [cancelScheduledFlush]);
 
   return {
     phase,

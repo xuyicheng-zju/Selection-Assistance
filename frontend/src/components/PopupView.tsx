@@ -52,53 +52,58 @@ export function PopupView({ text, initialAction, onClose }: Props) {
   };
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-white rounded-xl overflow-hidden shadow-2xl border border-gray-200">
-      {/* 标题栏（可拖拽） */}
-      <div className="flex items-center justify-between px-2 h-9 bg-gradient-to-r from-brand-600 to-brand-500 text-white draggable select-none">
-        <div className="flex items-center gap-1 ml-1">
+    <div className="popup-shell">
+      <header className="popup-header draggable select-none">
+        <div className="brand-lockup">
+          <span className="brand-mark" aria-hidden="true"><i /></span>
+          <div>
+            <strong>划词助手</strong>
+            <span>Selection assistant</span>
+          </div>
+        </div>
+        <div className="header-actions">
+          <button
+            onClick={sa.toggleThinking}
+            className={`no-drag mode-button ${sa.thinkingEnabled ? "is-active" : ""}`}
+            title={sa.thinkingEnabled ? "深度思考已开启" : "开启深度思考"}
+            aria-pressed={sa.thinkingEnabled}
+          >
+            <SparkIcon />
+            深度
+          </button>
+          <button
+            onClick={onClose}
+            className="no-drag icon-button"
+            title="关闭"
+            aria-label="关闭浮窗"
+          >
+            <CloseIcon />
+          </button>
+        </div>
+      </header>
+
+      <div className="context-strip">
+        <div className="segmented-control" role="tablist" aria-label="处理方式">
           <button
             onClick={() => switchTab("translate")}
-            className={`no-drag px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-              tab === "translate"
-                ? "bg-white/25 text-white"
-                : "text-white/70 hover:text-white"
-            }`}
+            className={tab === "translate" ? "is-active" : ""}
+            role="tab"
+            aria-selected={tab === "translate"}
           >
             翻译
           </button>
           <button
             onClick={() => switchTab("explain")}
-            className={`no-drag px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-              tab === "explain"
-                ? "bg-white/25 text-white"
-                : "text-white/70 hover:text-white"
-            }`}
+            className={tab === "explain" ? "is-active" : ""}
+            role="tab"
+            aria-selected={tab === "explain"}
           >
             解释
           </button>
         </div>
-        <div className="flex items-center gap-1">
-          <span className="text-[10px] text-white/60 max-w-[140px] truncate" title={text}>
-            {text}
-          </span>
-          <button
-            onClick={sa.toggleThinking}
-            className={`no-drag w-6 h-6 flex items-center justify-center rounded text-xs transition-colors ${
-              sa.thinkingEnabled
-                ? "bg-yellow-400/30 text-yellow-200"
-                : "text-white/50 hover:text-white hover:bg-white/15"
-            }`}
-            title={sa.thinkingEnabled ? "思考模式：已开启（点击关闭）" : "思考模式：已关闭（点击开启）"}
-          >
-            💡
-          </button>
-          <button
-            onClick={onClose}
-            className="no-drag w-6 h-6 flex items-center justify-center rounded hover:bg-white/20 text-white/80 hover:text-white text-sm"
-            title="关闭"
-          >
-            ✕
-          </button>
+        <div className="source-preview" title={text}>
+          <span>选中内容</span>
+          <p>{text}</p>
         </div>
       </div>
 
@@ -124,45 +129,61 @@ export function PopupView({ text, initialAction, onClose }: Props) {
       />
 
       {/* 追问输入框 */}
-      <div className="border-t border-gray-200 p-2 bg-white">
-        <div className="flex items-end gap-2">
+      <footer className="composer-wrap">
+        <div className="composer">
           <textarea
             ref={inputRef}
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             onKeyDown={onKeyQuestion}
-            placeholder="继续提问…  (Enter 发送 / Shift+Enter 换行)"
+            placeholder="围绕选中内容继续问…"
             rows={1}
-            className="selectable flex-1 resize-none px-3 py-2 text-sm rounded-lg border border-gray-200 focus:border-brand-400 focus:ring-1 focus:ring-brand-300 outline-none max-h-28"
+            className="selectable composer-input"
+            aria-label="继续提问"
           />
           <button
             onClick={handleAsk}
             disabled={sa.phase === "streaming" || !question.trim()}
-            className="shrink-0 px-3 py-2 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="send-button"
+            aria-label="发送问题"
           >
-            {sa.phase === "streaming" ? "…" : "发送"}
+            {sa.phase === "streaming" ? <LoadingIcon /> : <ArrowIcon />}
           </button>
+        </div>
+        <div className="composer-meta">
+          <span className={sa.phase === "streaming" ? "stream-status is-live" : "stream-status"}>
+            <i />{sa.phase === "streaming" ? "实时生成中" : "Enter 发送 · Shift + Enter 换行"}
+          </span>
           <button
             onClick={() => {
-              if (sa.phase === "streaming") return;
-              if (sa.history.length === 0) return;
-              if (confirm("开新会话将清空当前对话历史，确定？")) {
-                sa.reset();
+              if (sa.phase === "streaming" || sa.history.length === 0) return;
+              if (confirm("开新会话将清空历史并重新处理当前选区，确定？")) {
+                sa.runInitial(tab, text);
               }
             }}
             disabled={sa.history.length === 0 || sa.phase === "streaming"}
-            className="shrink-0 px-2.5 py-2 rounded-lg bg-gray-100 text-gray-600 text-xs font-medium hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            title="新开会话（清空历史）"
+            className="new-thread-button"
           >
-            新会话
+            <RefreshIcon /> 新会话
           </button>
         </div>
-        {sa.history.length > 0 && (
-          <div className="mt-1 text-[10px] text-gray-400 px-1">
-            已对话 {Math.floor(sa.history.length / 2)} 轮 · 点「新会话」清空重来
-          </div>
-        )}
-      </div>
+      </footer>
     </div>
   );
+}
+
+function SparkIcon() {
+  return <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.5c.45 3.05 1.45 4.05 4.5 4.5-3.05.45-4.05 1.45-4.5 4.5C7.55 7.45 6.55 6.45 3.5 6 6.55 5.55 7.55 4.55 8 1.5Z"/><path d="M12.3 9.6c.22 1.5.7 1.98 2.2 2.2-1.5.22-1.98.7-2.2 2.2-.22-1.5-.7-1.98-2.2-2.2 1.5-.22 1.98-.7 2.2-2.2Z"/></svg>;
+}
+function CloseIcon() {
+  return <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 4 8 8M12 4l-8 8" /></svg>;
+}
+function ArrowIcon() {
+  return <svg viewBox="0 0 18 18" aria-hidden="true"><path d="M4 9h10M10 5l4 4-4 4" /></svg>;
+}
+function RefreshIcon() {
+  return <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M13 7a5 5 0 1 0-.9 3M13 3v4H9" /></svg>;
+}
+function LoadingIcon() {
+  return <span className="button-loader" aria-hidden="true" />;
 }

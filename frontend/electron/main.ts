@@ -28,6 +28,7 @@ let mainWindow: BrowserWindow | null = null;
 let actionButtonWindow: BrowserWindow | null = null;
 let popupWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+let hasPopupSession = false;
 
 const settings: AppSettings = {
   backendBase: "http://localhost:8000",
@@ -77,16 +78,31 @@ function createTray() {
   tray.on("click", () => mainWindow?.show());
 }
 
-/** 用 xdotool 模拟 Ctrl+C 复制当前选区（Linux）。无 xdotool 则 resolve(false)。 */
-function copySelectionViaXdotool(): Promise<boolean> {
+/**
+ * 用 xdotool 模拟 Ctrl+C，并只返回这次复制真正取得的文本。
+ * 先放入哨兵值可区分“没有选区”和“剪贴板里残留着上次文本”。
+ */
+function readSelectionViaXdotool(): Promise<string> {
   return new Promise((resolve) => {
+    const previousClipboard = clipboard.readText();
+    const sentinel = `__selection_assistant_${Date.now()}_${Math.random()}__`;
+    clipboard.writeText(sentinel);
     execFile("xdotool", ["key", "ctrl+c"], (err) => {
       if (err) {
         console.log("[hotkey] xdotool 不可用（建议 sudo apt install xdotool 以支持自动复制）");
-        resolve(false);
+        clipboard.writeText(previousClipboard);
+        resolve("");
       } else {
-        // 等剪贴板更新
-        setTimeout(() => resolve(true), 120);
+        // 等目标应用把选区写入剪贴板。
+        setTimeout(() => {
+          const copied = clipboard.readText();
+          if (copied === sentinel || !copied.trim()) {
+            clipboard.writeText(previousClipboard);
+            resolve("");
+            return;
+          }
+          resolve(copied.trim());
+        }, 120);
       }
     });
   });
@@ -97,26 +113,16 @@ async function handleHotkey(defaultAction: Action) {
   console.log(`[hotkey] triggered, default=${defaultAction}`);
   // 等修饰键释放，否则 xdotool 发的 Ctrl+C 会冲突
   await new Promise((r) => setTimeout(r, 150));
-  await copySelectionViaXdotool();
-  const text = clipboard.readText().trim();
+  const text = await readSelectionViaXdotool();
   if (!text) {
-    console.log("[hotkey] 未取到选区文本（剪贴板为空）。");
-    if (popupWindow) {
-      pendingText = "";
-      const doIt = () => {
-        popupWindow!.show();
-        popupWindow!.focus();
-        popupWindow!.webContents.send(IPC.ACTION_RUN, {
-          action: defaultAction,
-          text: "（未取到选区文本。请确认选中了文字；若仍失败，检查 xdotool 是否安装：sudo apt install xdotool）",
-          context: undefined,
-        });
-      };
-      if (popupWindow.webContents.isLoading()) {
-        popupWindow.webContents.once("dom-ready", doIt);
-      } else {
-        doIt();
-      }
+    console.log("[hotkey] 未取到新选区，仅唤回已有会话，不发起请求。");
+    pendingText = "";
+    hideActionButton();
+    if (popupWindow && hasPopupSession) {
+      const cursor = screen.getCursorScreenPoint();
+      positionAtPoint(popupWindow, cursor.x, cursor.y);
+      popupWindow.show();
+      popupWindow.focus();
     }
     return;
   }
@@ -160,6 +166,7 @@ function hideActionButton() {
 /** 打开浮窗并执行指定动作 */
 function runAction(action: Action, x: number, y: number, text?: string) {
   if (text) pendingText = text;
+  if (!pendingText.trim()) return;
   if (!popupWindow) return;
   hideActionButton();
 
@@ -173,6 +180,7 @@ function runAction(action: Action, x: number, y: number, text?: string) {
       context: pendingContext,
     };
     popupWindow!.webContents.send(IPC.ACTION_RUN, payload);
+    hasPopupSession = true;
   };
 
   if (popupWindow.webContents.isLoading()) {

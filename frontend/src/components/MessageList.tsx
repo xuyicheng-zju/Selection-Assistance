@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
 import type { ChatMessage } from "../lib/types";
 import { renderMarkdown } from "../lib/markdown";
 // KaTeX 公式样式（行内 $...$ 与块级 $...$）
@@ -23,46 +23,65 @@ export function MessageList({
   streamingRole,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
 
-  // 自动滚动到底
+  // 仅当用户仍停留在底部时跟随输出；阅读上文时不抢滚动位置。
   useEffect(() => {
     const el = ref.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el || !stickToBottomRef.current) return;
+    const frame = requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+    return () => cancelAnimationFrame(frame);
   }, [history, streamingContent, streaming]);
+
+  const handleScroll = () => {
+    const el = ref.current;
+    if (!el) return;
+    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 56;
+  };
 
   // 空状态
   if (history.length === 0 && !streamingContent) {
     return (
-      <div className="flex-1 flex items-center justify-center text-gray-300 text-sm">
+      <div className="empty-result" role="status" aria-live="polite">
         {streaming ? (
-          <span className="inline-flex items-center gap-2">
-            <span className="w-1.5 h-1.5 bg-brand-500 rounded-full animate-pulse" />
-            生成中…
-          </span>
+          <GeneratingState />
         ) : (
-          "暂无内容"
+          <span>选中文字，答案会出现在这里</span>
         )}
       </div>
     );
   }
 
   return (
-    <div ref={ref} className="selectable flex-1 overflow-y-auto px-3 py-2 space-y-3">
+    <div
+      ref={ref}
+      onScroll={handleScroll}
+      className="message-list selectable"
+      aria-live="polite"
+      aria-busy={streaming}
+    >
       {history.map((msg, i) => (
         <MessageBubble key={i} msg={msg} />
       ))}
       {/* 当前流式消息 */}
-      {streamingContent && (
+      {streamingContent ? (
         <MessageBubble
           msg={{ role: streamingRole, content: streamingContent }}
           streaming={streaming}
         />
+      ) : streaming ? (
+        <div className="assistant-row"><GeneratingState /></div>
+      ) : null}
+      {streaming && streamingContent && (
+        <span className="sr-only">正在生成回答</span>
       )}
     </div>
   );
 }
 
-function MessageBubble({
+const MessageBubble = memo(function MessageBubble({
   msg,
   streaming = false,
 }: {
@@ -70,15 +89,14 @@ function MessageBubble({
   streaming?: boolean;
 }) {
   const isUser = msg.role === "user";
-  const html = renderMarkdown(msg.content);
+  const html = useMemo(
+    () => (isUser ? "" : renderMarkdown(msg.content)),
+    [isUser, msg.content]
+  );
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+    <div className={isUser ? "user-row" : "assistant-row"}>
       <div
-        className={`max-w-[88%] px-3 py-2 rounded-xl text-sm leading-relaxed ${
-          isUser
-            ? "bg-brand-600 text-white rounded-br-sm"
-            : "bg-gray-100 text-gray-800 rounded-bl-sm"
-        }`}
+        className={isUser ? "user-message" : "assistant-message"}
       >
         {isUser ? (
           <div className="whitespace-pre-wrap break-words">{msg.content}</div>
@@ -86,11 +104,23 @@ function MessageBubble({
           <div className="md-body">
             <div dangerouslySetInnerHTML={{ __html: html }} />
             {streaming && (
-              <span className="inline-block w-[2px] h-[1em] bg-brand-600 ml-0.5 align-middle animate-caret-blink" />
+              <span className="stream-caret" aria-hidden="true" />
             )}
           </div>
         )}
       </div>
+    </div>
+  );
+});
+
+function GeneratingState() {
+  return (
+    <div className="generating-state">
+      <span className="stream-orbit" aria-hidden="true"><i /></span>
+      <span>
+        <strong>正在组织答案</strong>
+        <small>内容会连续出现</small>
+      </span>
     </div>
   );
 }

@@ -4,12 +4,14 @@
 
 ## 功能
 
-- **划词翻译 / 解释**：选中文字 → 鼠标旁弹「翻译/解释」迷你按钮（豆包式），点击后浮窗流式展示结果。
+- **划词翻译 / 解释**：任意应用选中文字后按全局热键，浮窗立即流式展示结果；主窗口内选区也支持迷你操作条。
 - **带音标**：英文单词出 IPA/英音/美音，中文出带调拼音。
 - **思考过程**：DeepSeek `enable_thinking` 的 reasoning 单独折叠展示。
 - **多轮追问**（核心）：翻译/解释后可在浮窗内继续提问，如「换个说法」「举个例句」「还有什么意思」，前端维护完整对话历史。
-- **全局热键**：`Ctrl+Shift+D`（Mac: `Cmd+Shift+D`）→ 读剪贴板 → 直接弹浮窗。**VSCode、终端等自带划词弹窗的应用**用这条路径，与原生弹窗共存。
-- **看图 / OCR**：截图后走 `/api/explain/vision` 或 `/api/ocr`（多模态自动切 Qwen-VL）。
+- **双全局热键**：`Ctrl+Shift+D` 翻译，`Ctrl+Shift+E` 解释；通过 `xdotool` 获取本次真实选区，与 VSCode、终端等应用的原生弹窗共存。
+- **安全的空选区行为**：没有新选区时不读取旧剪贴板、不发模型请求；已有对话时只唤回窗口继续 Chat。
+- **平滑流式渲染**：SSE token 约 30 FPS 合帧提交，完成消息缓存 Markdown，自动滚动不会打断用户阅读。
+- **看图 / OCR API**：后端提供 `/api/explain/vision` 与 `/api/ocr`，可继续扩展前端上传入口。
 - **内嵌后端**：Electron 启动时自动 spawn 后端进程，退出时清理，无需手动起后端。
 
 ## 快速开始
@@ -39,8 +41,8 @@ npm run dist         # electron-builder 打包成安装包（release/）
 
 | 场景 | 操作 |
 |------|------|
-| 任意应用选词翻译 | 选中文字 → 点鼠标旁的「翻译」按钮 |
-| VSCode / 终端等 | 选中文字（或 Ctrl+C 复制）→ 按 `Ctrl+Shift+D` |
+| 任意应用选词 | 选中文字 → 按 `Ctrl+Shift+D` 翻译或 `Ctrl+Shift+E` 解释 |
+| 未选中文字 | 有历史时唤回原会话；无历史时静默，不发送请求 |
 | 追问 | 浮窗底部输入框输入，Enter 发送 |
 | 看图解释 | 调 `/api/explain/vision`（需前端扩展上传图片） |
 
@@ -62,7 +64,7 @@ src/                          渲染进程（React）
 ├── components/
 │   ├── PopupView.tsx         浮窗主体：Tab、音标、结果、思考、追问输入
 │   ├── PhoneticsBar.tsx      IPA/UK/US/拼音
-│   ├── ResultPane.tsx        Markdown 渲染 + 流式打字机光标
+│   ├── MessageList.tsx       历史消息 + Markdown 缓存 + 智能贴底
 │   ├── ThinkingPanel.tsx     折叠思考过程
 │   └── ErrorBanner.tsx
 ├── hooks/
@@ -86,14 +88,14 @@ src/                          渲染进程（React）
 4. **追问**：输入框 Enter → `useSelectionAction.ask()` → `/api/chat/stream`，前端把历史一起发。
 
 ### 全局热键流（VSCode 兼容）
-`Ctrl+Shift+D` → 读剪贴板 → `positionAtPoint` 弹浮窗 → 默认翻译 Tab。不依赖目标应用配合，与自带划词弹窗共存。
+`Ctrl+Shift+D/E` → 写入剪贴板哨兵 → `xdotool` 复制当前选区 → 验证本次确有新文本 → `positionAtPoint` 弹浮窗。没有新选区时不发送请求；若已有会话则仅唤回窗口。
 
 ## SSE 说明
 后端流式端点是 **POST**（浏览器原生 `EventSource` 只支持 GET），因此 `src/lib/sse.ts` 用 `fetch` + `ReadableStream` 手写解析器，按 `\n\n` 切事件块，分发 `phonetics/thinking/delta/done/error`。
 
 ## 测试
 ```bash
-npx vitest run       # 15 个：SSE 解析、API 客户端（multipart/JSON/错误体）
+npm test             # 20 个：SSE 解析、API 客户端、Markdown
 npx tsc --noEmit     # 类型检查
 ```
 
