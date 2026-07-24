@@ -1,5 +1,5 @@
 /**
- * 划词动作状态机：执行初始 translate/explain（SSE 流式），并支持多轮追问。
+ * 划词动作状态机：执行 translate / explain / chat（SSE 流式），并支持多轮多图追问。
  *
  * 维护：
  * - 主结果内容（translation 或 explanation）
@@ -12,7 +12,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Action, ChatMessage, Phonetics } from "../lib/types";
 import { BackendError } from "../lib/types";
 import { streamRequest } from "../lib/sse";
-import { streamUrl, chatStreamUrl } from "../lib/api";
+import { chatStreamBody, streamUrl, chatStreamUrl } from "../lib/api";
 
 export type Phase = "idle" | "loading" | "streaming" | "done" | "error";
 
@@ -26,9 +26,9 @@ export interface UseSelectionAction {
   initialAction: Action | null;
   thinkingEnabled: boolean; // 思考模式开关（供 UI 显示）
   // 执行初始动作
-  runInitial: (action: Action, text: string) => Promise<void>;
+  runInitial: (action: Action, text: string, images?: File[]) => Promise<void>;
   // 追问
-  ask: (question: string) => Promise<void>;
+  ask: (question: string, images?: File[]) => Promise<void>;
   // 切换思考模式（同步持久化到设置）
   toggleThinking: () => void;
   // 中断
@@ -87,6 +87,8 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
     thinkingEnabled ? { "X-Enable-Thinking": "true" } : { "X-Enable-Thinking": "false" };
 
   const abortRef = useRef<AbortController | null>(null);
+  // 初始图片会在后续追问中继续发送，保证视觉上下文不丢失。
+  const contextImagesRef = useRef<File[]>([]);
   // 最新选中文字（追问时需要作为 selected_text）
   const selectedRef = useRef(selectedText);
   useEffect(() => {
@@ -111,11 +113,12 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
     setError(null);
     setHistory([]);
     setInitialAction(null);
+    contextImagesRef.current = [];
   }, [abort]);
 
   const runInitial = useCallback(
-    async (action: Action, text: string) => {
-      if (!text.trim()) return;
+    async (action: Action, text: string, images: File[] = []) => {
+      if (!text.trim() && images.length === 0) return;
       abort();
       setPhase("streaming");
       const requestId = requestIdRef.current;
@@ -126,27 +129,50 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
       setThinking("");
       setError(null);
       // 首条：把「动作: 选中文本」作为 user 消息，让对话历史连贯
-      const actionLabel = action === "translate" ? "翻译" : "解释";
-      setHistory([{ role: "user", content: `${actionLabel}：${text}` }]);
+      const actionLabel =
+        action === "translate" ? "翻译" : action === "explain" ? "解释" : "Chat";
+      const displayText = text.trim() || "请分析这些图片";
+      const imageLabel = images.length > 0 ? `\n[附带 ${images.length} 张图片]` : "";
+      setHistory([
+        { role: "user", content: `${actionLabel}：${displayText}${imageLabel}` },
+      ]);
       setInitialAction(action);
-      selectedRef.current = text;
+      selectedRef.current = action === "chat" ? "" : text;
+      contextImagesRef.current = [...images];
 
       const controller = new AbortController();
       abortRef.current = controller;
 
-      // 构造 multipart 表单
-      const form = new FormData();
-      form.append("text", text);
-      if (action === "translate") {
-        form.append("source_lang", "auto");
-        form.append("target_lang", "zh");
+      let requestUrl: string;
+      let requestBody: FormData | string;
+      if (action === "chat") {
+        requestUrl = chatStreamUrl();
+        requestBody = chatStreamBody(
+          {
+            selected_text: "",
+            initial_action: "chat",
+            history: [],
+            question: displayText,
+          },
+          images
+        );
       } else {
-        form.append("style", "concise");
+        requestUrl = streamUrl(action);
+        const form = new FormData();
+        if (text.trim()) form.append("text", text);
+        for (const image of images) form.append("images", image);
+        if (action === "translate") {
+          form.append("source_lang", "auto");
+          form.append("target_lang", "zh");
+        } else {
+          form.append("style", "concise");
+        }
+        requestBody = form;
       }
 
       await streamRequest(
-        streamUrl(action),
-        form,
+        requestUrl,
+        requestBody,
         {
           onPhonetics: (d) => {
             setPhonetics(d.phonetics as Phonetics);
@@ -187,8 +213,8 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
   );
 
   const ask = useCallback(
-    async (question: string) => {
-      if (!question.trim() || !initialAction) return;
+    async (question: string, images: File[] = []) => {
+      if ((!question.trim() && images.length === 0) || !initialAction) return;
       abort();
       setPhase("streaming");
       const requestId = requestIdRef.current;
@@ -202,15 +228,37 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
 
       // 先把用户问题追加进历史（本地），用 snapshot 调用后端
       const historyBefore = history;
-      setHistory((h) => [...h, { role: "user", content: question }]);
+      const normalizedQuestion = question.trim() || "请分析新添加的图片";
+      const imageLabel = images.length > 0 ? `\n[新添加 ${images.length} 张图片]` : "";
+      setHistory((h) => [
+        ...h,
+        { role: "user", content: `${normalizedQuestion}${imageLabel}` },
+      ]);
       setContent("");
 
-      const body = JSON.stringify({
-        selected_text: selectedRef.current,
-        initial_action: initialAction,
-        history: historyBefore, // 不含本轮
-        question,
-      });
+      const known = new Set(
+        contextImagesRef.current.map(
+          (image) => `${image.name}:${image.size}:${image.lastModified}`
+        )
+      );
+      const contextImages = [...contextImagesRef.current];
+      for (const image of images) {
+        const key = `${image.name}:${image.size}:${image.lastModified}`;
+        if (!known.has(key) && contextImages.length < 8) {
+          contextImages.push(image);
+          known.add(key);
+        }
+      }
+      contextImagesRef.current = contextImages;
+      const body = chatStreamBody(
+        {
+          selected_text: selectedRef.current,
+          initial_action: initialAction,
+          history: historyBefore, // 不含本轮
+          question: normalizedQuestion,
+        },
+        contextImages
+      );
 
       await streamRequest(
         chatStreamUrl(),

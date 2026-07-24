@@ -7,8 +7,14 @@ interface Window {
 }
 
 // 与 electron/preload.ts 暴露的 doubaoAPI 对齐
-type Action = "translate" | "explain";
+type Action = "translate" | "explain" | "chat";
 type TriggerPayload = { action: Action; text: string; context?: string };
+type ClipboardImage = {
+  dataUrl: string;
+  mimeType: "image/png";
+  width: number;
+  height: number;
+};
 type AppSettings = {
   backendBase: string;
   hotkey: string;
@@ -16,6 +22,7 @@ type AppSettings = {
   hotkeyExplain: string;
   showThinking: boolean;
   enableActionButton: boolean;
+  launchAtLogin: boolean;
 };
 
 interface DoubaoAPI {
@@ -26,6 +33,7 @@ interface DoubaoAPI {
   quit(): void;
   getSettings(): Promise<AppSettings>;
   setSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
+  readClipboardImage(): Promise<ClipboardImage | null>;
   getBackendBase(): string;
 }
 

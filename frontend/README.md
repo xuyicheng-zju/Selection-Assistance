@@ -8,10 +8,11 @@
 - **带音标**：英文单词出 IPA/英音/美音，中文出带调拼音。
 - **思考过程**：DeepSeek `enable_thinking` 的 reasoning 单独折叠展示。
 - **多轮追问**（核心）：翻译/解释后可在浮窗内继续提问，如「换个说法」「举个例句」「还有什么意思」，前端维护完整对话历史。
+- **独立 Chat + 多图对话**：主窗口可直接进入 Chat；翻译、解释和 Chat 均支持最多 8 张图片，可多选、拖拽、连续读取剪贴板图片或在输入框按 `Ctrl+V`。
 - **双全局热键**：`Ctrl+Shift+D` 翻译，`Ctrl+Shift+E` 解释；通过 `xdotool` 获取本次真实选区，与 VSCode、终端等应用的原生弹窗共存。
 - **安全的空选区行为**：没有新选区时不读取旧剪贴板、不发模型请求；已有对话时只唤回窗口继续 Chat。
 - **平滑流式渲染**：SSE token 约 30 FPS 合帧提交，完成消息缓存 Markdown，自动滚动不会打断用户阅读。
-- **看图 / OCR API**：后端提供 `/api/explain/vision` 与 `/api/ocr`，可继续扩展前端上传入口。
+- **多模态输入**：图片随翻译、解释或 Chat 自动路由到 Qwen-VL，后续追问会持续保留视觉上下文。
 - **内嵌后端**：Electron 启动时自动 spawn 后端进程，退出时清理，无需手动起后端。
 
 ## 快速开始
@@ -27,6 +28,15 @@ npm run dev          # 开发：Vite(5173) + Electron 同时起，后端独立�
 ```
 
 开发模式下，Electron 加载 `http://localhost:5173`，后端需另开终端 `uv run uvicorn app.main:app --port 8000`。
+
+### 安装为 Linux 桌面 App
+
+```bash
+cd frontend
+npm run install:linux
+```
+
+该命令会构建生产版，并在当前用户的应用菜单与桌面安装“划词助手”图标，同时开启开机静默启动。点击窗口关闭按钮只会隐藏到系统托盘；从托盘菜单或主窗口底部选择“退出”才会彻底结束进程。开机自启也可在主窗口“设置”中随时关闭。
 
 ### 生产 / 打包
 
@@ -44,7 +54,8 @@ npm run dist         # electron-builder 打包成安装包（release/）
 | 任意应用选词 | 选中文字 → 按 `Ctrl+Shift+D` 翻译或 `Ctrl+Shift+E` 解释 |
 | 未选中文字 | 有历史时唤回原会话；无历史时静默，不发送请求 |
 | 追问 | 浮窗底部输入框输入，Enter 发送 |
-| 看图解释 | 调 `/api/explain/vision`（需前端扩展上传图片） |
+| 多图输入 | 多选/拖拽图片，或连续点“从剪贴板”；输入框内也可按 `Ctrl+V` |
+| 独立 Chat | 主窗口输入文字或图片后点击 `Chat` |
 
 ## 架构
 
@@ -63,6 +74,7 @@ src/                          渲染进程（React）
 ├── actionButton.tsx          悬浮迷你按钮入口
 ├── components/
 │   ├── PopupView.tsx         浮窗主体：Tab、音标、结果、思考、追问输入
+│   ├── ImageAttachments.tsx  多图选择、拖拽、剪贴板读取与缩略图
 │   ├── PhoneticsBar.tsx      IPA/UK/US/拼音
 │   ├── MessageList.tsx       历史消息 + Markdown 缓存 + 智能贴底
 │   ├── ThinkingPanel.tsx     折叠思考过程
@@ -95,7 +107,7 @@ src/                          渲染进程（React）
 
 ## 测试
 ```bash
-npm test             # 20 个：SSE 解析、API 客户端、Markdown
+npm test             # 21 个：SSE 解析、API 客户端、Markdown
 npx tsc --noEmit     # 类型检查
 ```
 

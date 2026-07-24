@@ -38,6 +38,8 @@ curl http://127.0.0.1:8000/api/health   # {"ok":true}
 
 所有翻译/解释/OCR 端点用 `multipart/form-data`（`text` + `images` 两个可选字段）。
 
+`POST /api/chat/stream` 同时兼容 JSON 与 `multipart/form-data`。multipart 可重复提交 `images` 字段（最多 8 张）；有图自动使用 Qwen-VL，无图使用 DeepSeek。
+
 ### 1. 翻译 `POST /api/translate`
 
 ```bash

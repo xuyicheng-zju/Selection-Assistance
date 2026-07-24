@@ -8,9 +8,11 @@
   "scripts": {
     "dev": "concurrently -k -n vite,elec \"vite\" \"wait-on tcp:5173 && tsc -p tsconfig.electron.json && cross-env NODE_ENV=development electron . --no-sandbox\"",
     "dev:renderer": "vite",
+    "start": "cross-env NODE_ENV=production electron . --no-sandbox",
     "build": "tsc -p tsconfig.electron.json && vite build",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "install:linux": "npm run build && bash scripts/install-linux-app.sh --enable-autostart",
     "pack": "npm run build && electron-builder --dir",
     "dist": "npm run build && electron-builder"
   },

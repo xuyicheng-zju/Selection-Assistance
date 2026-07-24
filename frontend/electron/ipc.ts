@@ -3,7 +3,14 @@
  * 主进程与渲染进程通过这些通道通信。
  */
 
-export type Action = "translate" | "explain";
+export type Action = "translate" | "explain" | "chat";
+
+export interface ClipboardImage {
+  dataUrl: string;
+  mimeType: "image/png";
+  width: number;
+  height: number;
+}
 
 /** 悬浮按钮触发时携带的数据（主进程 → 渲染进程） */
 export interface TriggerPayload {
@@ -27,6 +34,7 @@ export const IPC = {
   POPUP_READY: "popup:ready",
   SETTINGS_GET: "settings:get",
   SETTINGS_SET: "settings:set",
+  CLIPBOARD_READ_IMAGE: "clipboard:read-image",
   QUIT_APP: "app:quit",
 
   // 主进程 → 渲染进程
@@ -40,4 +48,5 @@ export interface AppSettings {
   hotkeyExplain: string; // 默认解释热键，如 CommandOrControl+Shift+E
   showThinking: boolean; // 是否开启 DeepSeek 思考模式（控制是否请求 reasoning）
   enableActionButton: boolean; // 鼠标选中是否弹悬浮按钮
+  launchAtLogin: boolean; // 登录桌面后静默启动并驻留托盘
 }

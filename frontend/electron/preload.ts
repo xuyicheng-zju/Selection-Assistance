@@ -5,7 +5,13 @@
  * 后端地址通过 __BACKEND_BASE__ 注入，避免渲染进程硬编码。
  */
 import { contextBridge, ipcRenderer, IpcRendererEvent } from "electron";
-import { IPC, Action, TriggerPayload, AppSettings } from "./ipc";
+import {
+  IPC,
+  Action,
+  TriggerPayload,
+  AppSettings,
+  ClipboardImage,
+} from "./ipc";
 
 // 后端地址默认值；主进程会在 SETTINGS_GET 里返回真实地址（可能因端口占用而变化）。
 const BACKEND_BASE_DEFAULT = "http://localhost:8000";
@@ -36,6 +42,9 @@ const popupApi = {
   },
   setSettings(patch: Partial<AppSettings>): Promise<AppSettings> {
     return ipcRenderer.invoke(IPC.SETTINGS_SET, patch);
+  },
+  readClipboardImage(): Promise<ClipboardImage | null> {
+    return ipcRenderer.invoke(IPC.CLIPBOARD_READ_IMAGE);
   },
   /** 同步拿后端地址（从主进程 settings.backendBase） */
   getBackendBase(): string {

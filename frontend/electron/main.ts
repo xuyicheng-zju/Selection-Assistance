@@ -8,7 +8,16 @@
  * 4. 处理悬浮按钮点击 → 弹浮窗执行。
  * 5. 退出时清理后端进程。
  */
-import { app, BrowserWindow, globalShortcut, ipcMain, Tray, Menu, nativeImage, clipboard, screen } from "electron";
+import {
+  app,
+  BrowserWindow,
+  globalShortcut,
+  ipcMain,
+  Tray,
+  Menu,
+  clipboard,
+  screen,
+} from "electron";
 import { execFile } from "node:child_process";
 import { BackendProcess } from "./backend";
 import {
@@ -19,6 +28,13 @@ import {
 } from "./windows";
 import { fromSelectionReport } from "./selection";
 import { IPC, Action, TriggerPayload, AppSettings } from "./ipc";
+import {
+  DEFAULT_SETTINGS,
+  getTrayIcon,
+  loadSettings,
+  saveSettings,
+  setLaunchAtLogin,
+} from "./desktop";
 
 const DEV = process.env.NODE_ENV === "development";
 void DEV;
@@ -29,21 +45,18 @@ let actionButtonWindow: BrowserWindow | null = null;
 let popupWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let hasPopupSession = false;
+let isQuitting = false;
+let shutdownStarted = false;
 
-const settings: AppSettings = {
-  backendBase: "http://localhost:8000",
-  hotkey: "CommandOrControl+Shift+D",
-  hotkeyTranslate: "CommandOrControl+Shift+D",
-  hotkeyExplain: "CommandOrControl+Shift+E",
-  showThinking: false,
-  enableActionButton: true,
-};
+const settings: AppSettings = { ...DEFAULT_SETTINGS };
 
 // 当前待处理的选区文本（悬浮按钮 / 浮窗复用）
 let pendingText = "";
 let pendingContext: string | undefined;
 
 async function bootstrap() {
+  Object.assign(settings, loadSettings());
+
   try {
     settings.backendBase = await backend.start();
     console.log(`[main] backend ready at ${settings.backendBase}`);
@@ -52,7 +65,12 @@ async function bootstrap() {
     // 仍允许启动，用户可在设置里改地址或手动起后端
   }
 
-  mainWindow = createMainWindow();
+  const startHidden =
+    process.argv.includes("--hidden") ||
+    process.env.SELECTION_ASSISTANT_START_HIDDEN === "1";
+  console.log(`[main] startup mode: ${startHidden ? "background" : "foreground"}`);
+  mainWindow = createMainWindow(!startHidden);
+  keepMainWindowInBackground(mainWindow);
   createTray();
 
   actionButtonWindow = createActionButtonWindow();
@@ -60,13 +78,36 @@ async function bootstrap() {
 
   registerIpc();
   registerHotkey();
+  // 某些 Linux 窗口管理器不会为 show:false 的窗口可靠触发 ready-to-show。
+  // 所有初始化完成后再显式映射一次，开机静默模式除外。
+  if (!startHidden) showMainWindow();
+}
+
+function keepMainWindowInBackground(win: BrowserWindow) {
+  win.on("close", (event) => {
+    if (isQuitting) return;
+    event.preventDefault();
+    win.hide();
+    console.log("[main] main window hidden; app continues in tray");
+  });
+}
+
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    mainWindow = createMainWindow(true);
+    keepMainWindowInBackground(mainWindow);
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
 }
 
 function createTray() {
-  const icon = nativeImage.createEmpty();
-  tray = new Tray(icon);
+  tray = new Tray(getTrayIcon());
   const menu = Menu.buildFromTemplate([
-    { label: "打开主窗口", click: () => mainWindow?.show() },
+    { label: "打开主窗口", click: showMainWindow },
+    { label: "后台运行中", enabled: false },
     { type: "separator" },
     {
       label: "退出",
@@ -75,7 +116,7 @@ function createTray() {
   ]);
   tray.setContextMenu(menu);
   tray.setToolTip("划词助手");
-  tray.on("click", () => mainWindow?.show());
+  tray.on("click", showMainWindow);
 }
 
 /**
@@ -218,6 +259,17 @@ function registerIpc() {
 
   ipcMain.on(IPC.POPUP_CLOSE, () => popupWindow?.hide());
   ipcMain.on(IPC.QUIT_APP, () => app.quit());
+  ipcMain.handle(IPC.CLIPBOARD_READ_IMAGE, () => {
+    const image = clipboard.readImage();
+    if (image.isEmpty()) return null;
+    const { width, height } = image.getSize();
+    return {
+      dataUrl: image.toDataURL(),
+      mimeType: "image/png" as const,
+      width,
+      height,
+    };
+  });
 
   ipcMain.handle(IPC.SETTINGS_GET, () => ({ ...settings }));
   ipcMain.handle(IPC.SETTINGS_SET, (_e, patch: Partial<AppSettings>) => {
@@ -228,23 +280,48 @@ function registerIpc() {
     if (patch.hotkey && !patch.hotkeyTranslate) {
       settings.hotkeyTranslate = patch.hotkey;
     }
+    settings.hotkey = settings.hotkeyTranslate;
+    if (typeof patch.launchAtLogin === "boolean") {
+      try {
+        settings.launchAtLogin = setLaunchAtLogin(patch.launchAtLogin);
+      } catch (err) {
+        console.error("[autostart] failed to update:", err);
+        settings.launchAtLogin = false;
+      }
+    }
     // 任一热键变化 → 重新注册
     if (settings.hotkeyTranslate !== oldT || settings.hotkeyExplain !== oldE) {
       registerHotkey();
     }
+    saveSettings(settings);
     return { ...settings };
   });
 }
 
 // ---- 生命周期 ----
-app.whenReady().then(bootstrap);
+// 稳定的 Linux WM_CLASS，确保应用菜单、Dock 与桌面图标正确归组。
+app.setName("selection-assistance");
+
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", (_event, commandLine) => {
+    // 开机启动撞上已有实例时保持静默；用户主动再次打开时唤起主窗口。
+    if (!commandLine.includes("--hidden")) showMainWindow();
+  });
+  app.whenReady().then(bootstrap);
+}
 
 app.on("window-all-closed", () => {
   // 主窗口关掉也保持后台（托盘），不退出
 });
 
 app.on("before-quit", (e) => {
+  if (shutdownStarted) return;
   e.preventDefault();
+  shutdownStarted = true;
+  isQuitting = true;
   globalShortcut.unregisterAll();
   backend.stop().finally(() => app.exit(0));
 });

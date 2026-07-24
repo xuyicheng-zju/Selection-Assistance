@@ -1,6 +1,6 @@
 // 与后端 app/schemas.py 严格对齐的 TypeScript 类型。
 
-export type Action = "translate" | "explain";
+export type Action = "translate" | "explain" | "chat";
 
 export type TextKind =
   | "word"

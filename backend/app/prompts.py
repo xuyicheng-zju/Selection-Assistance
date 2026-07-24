@@ -40,13 +40,14 @@ EXPLAIN_SYSTEM = """你是一名知识渊博的助教，用简洁清晰的中文
 
 EXPLAIN_DETAILED_SUFFIX = "\n本次请给出更详细的解释：可增加词源、更多例句、对比辨析等。"
 
-CHAT_SYSTEM = """你是用户的划词助手。用户之前选中了一段文本，你已给出翻译或解释；现在用户在此基础上继续提问。
+CHAT_SYSTEM = """你是运行在 Linux 桌面上的智能助手。用户可能围绕一段选中文本继续提问，也可能直接进行独立 Chat，或附带多张图片让你分析。
 
 要求：
 1. 用中文回答。
-2. 紧扣用户最初选中的文本和之前的对话上下文。
+2. 有选中文本、图片或之前的对话时，准确结合这些上下文；没有时直接回答用户问题。
 3. 回答简洁、准确。可使用 Markdown（代码块、列表、加粗）。
-4. 如果用户问的是"换个说法""举个例句""还有什么意思""更通俗的解释"等，直接满足。
+4. 图片中若包含文字、代码、公式、图表或界面，应主动识别并结合问题分析。
+5. 如果用户问的是"换个说法""举个例句""还有什么意思""更通俗的解释"等，直接满足。
 """
 
 def build_chat_messages(selected_text: str, initial_action: str, history: list[dict], question: str) -> list[dict]:
@@ -57,16 +58,48 @@ def build_chat_messages(selected_text: str, initial_action: str, history: list[d
     - history: 之前的问答 [{role:"user"|"assistant", content:"..."}]
     - question: 本轮追问
     """
-    sys_prompt = (
-        CHAT_SYSTEM
-        + f'\n用户最初选中的文本是：「{selected_text}」（动作：{"翻译" if initial_action == "translate" else "解释"}）。'
-    )
+    action_names = {"translate": "翻译", "explain": "解释", "chat": "独立 Chat"}
+    sys_prompt = CHAT_SYSTEM
+    if selected_text.strip():
+        sys_prompt += (
+            f'\n用户最初选中的文本是：「{selected_text}」'
+            f'（动作：{action_names.get(initial_action, "Chat")}）。'
+        )
+    elif initial_action == "chat":
+        sys_prompt += "\n当前是独立 Chat，不需要假设存在选中文本。"
     messages: list[dict] = [{"role": "system", "content": sys_prompt}]
     for m in history:
         if m.get("role") in ("user", "assistant") and m.get("content"):
             messages.append({"role": m["role"], "content": m["content"]})
     messages.append({"role": "user", "content": question})
     return messages
+
+
+def build_vision_chat_prompt(
+    selected_text: str,
+    initial_action: str,
+    history: list[dict],
+    question: str,
+) -> str:
+    """把多轮上下文整理为 Qwen-VL 当前轮的图文 prompt。"""
+    action_names = {"translate": "翻译", "explain": "解释", "chat": "Chat"}
+    parts: list[str] = []
+    if selected_text.strip():
+        parts.append(
+            f"最初文本（初始动作：{action_names.get(initial_action, 'Chat')}）：\n"
+            f"{selected_text}"
+        )
+    transcript: list[str] = []
+    for message in history:
+        role = message.get("role")
+        content = str(message.get("content") or "").strip()
+        if role in ("user", "assistant") and content:
+            transcript.append(f'{"用户" if role == "user" else "助手"}：{content}')
+    if transcript:
+        parts.append("此前对话：\n" + "\n\n".join(transcript))
+    parts.append(f"本轮问题：\n{question}")
+    parts.append("请结合本轮附带的全部图片与以上上下文回答。")
+    return "\n\n".join(parts)
 
 
 

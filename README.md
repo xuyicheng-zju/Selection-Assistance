@@ -1,6 +1,10 @@
-# Selection-Assistance
+<p align="center">
+  <img src="frontend/assets/icon.png" width="128" alt="Selection-Assistance Logo">
+</p>
 
-> Linux 桌面上的现代划词助手：选中即翻译/解释，支持音标、多轮追问、LaTeX、流式输出与多模态 API，专为 Linux 阅读、科研和开发工作流设计。
+<h1 align="center">Selection-Assistance</h1>
+
+> Linux 桌面上的现代划词与 AI 助手：选中即翻译/解释，也可独立 Chat；支持多图与剪贴板输入、音标、多轮追问、LaTeX、流式输出、后台托盘和开机自启。
 
 ---
 
@@ -42,6 +46,7 @@
 ### 多轮对话追问（核心）
 - 浮窗内**聊天式 UI**：完整对话历史保留（user/assistant 气泡），新消息不覆盖旧消息
 - 可继续提问：「换个说法」「举个例句」「还有什么意思」「更通俗的解释」
+- **独立 Chat**：无需先划词，直接输入文字或图片开始新对话
 - **空选区唤回**：已经有会话时，未选文字再按快捷键只会唤回窗口，方便继续 Chat，不会重跑旧内容
 - **新会话按钮**：清空历史并重新处理当前选区，不会无限追加
 
@@ -56,8 +61,15 @@
 - 公式语法错误时原样显示，不崩溃
 
 ### 多模态（看图 / OCR）
-- 截图 OCR 提取文字、看图解释、图文混合问答
+- 翻译、解释和 Chat 均支持图文混合输入，单次最多 8 张图片（每张最大 12 MB）
+- 支持文件多选、拖拽、点击「从剪贴板」和输入框内 `Ctrl+V`
+- 后续追问持续携带图片上下文，可用于截图 OCR、看图解释和图文问答
 - 同一端点**自动路由**：有图走 Qwen-VL，无图走 DeepSeek，前端无感知
+
+### 桌面 App
+- 应用菜单与桌面快捷方式自带专属 Logo
+- 关闭窗口后驻留系统托盘，翻译与解释热键继续可用
+- 支持开机静默启动，可在主窗口设置中随时关闭
 
 ### 跨应用兼容
 - 全局热键 + `xdotool` 自动复制选区，**不依赖目标应用配合**
@@ -129,7 +141,7 @@ selection-assistant/
 |------|------|
 | `POST /api/translate` `/api/explain` | 翻译/解释（multipart，含图自动切 Qwen-VL） |
 | `POST /api/translate/stream` `/api/explain/stream` | SSE 流式（思考开关经 `X-Enable-Thinking` header 控制） |
-| `POST /api/chat` `/api/chat/stream` | 多轮追问（前端维护 history） |
+| `POST /api/chat` `/api/chat/stream` | 独立 Chat / 多轮追问；JSON 走纯文本，multipart 支持多图 |
 | `POST /api/ocr` | 截图 OCR 提取文字 |
 | `POST /api/selection` `GET /api/detect` | 取词辅助 / 文本类型检测 |
 
@@ -164,11 +176,11 @@ uv sync --extra dev
 
 ```bash
 # 终端 1：后端
-cd Selection-Assistance/backend
+cd workspace/Selection-Assistance/backend
 uv run python -m uvicorn app.main:app --reload --port 8000
 
 # 终端 2：前端
-cd Selection-Assistance/frontend
+cd workspace/Selection-Assistance/frontend
 npm install
 npm run dev
 ```
@@ -182,6 +194,15 @@ cd frontend
 npm run dist       # 输出到 release/，双击运行自动起后端
 ```
 
+### 安装为 Linux 桌面 App
+
+```bash
+cd frontend
+npm run install:linux
+```
+
+安装脚本会构建生产版，并为当前用户安装应用菜单入口、桌面快捷方式、系统图标与开机自启项。关闭主窗口只会隐藏到托盘；从托盘菜单或主窗口底部选择「退出」才会结束进程。
+
 ---
 
 ## ⌨️ 使用方式
@@ -192,6 +213,9 @@ npm run dist       # 输出到 release/，双击运行自动起后端
 | 选中文字 + `Ctrl+Shift+E` | 直接解释 |
 | 未选文字 + 任一快捷键 | 有历史时唤回原会话；无历史时静默，不发送模型请求 |
 | 浮窗内输入 + Enter | 多轮追问（历史保留） |
+| 主窗口输入文字或图片后点 `Chat` | 开始独立对话 |
+| 选择/拖拽图片，或点「从剪贴板」 | 添加一张或多张图片 |
+| 输入框内 `Ctrl+V` | 直接粘贴剪贴板图片 |
 | 点「新会话」按钮 | 清空历史并重新处理当前选区 |
 | 点「深度」按钮 | 开关思考模式 |
 | 拖动浮窗顶部 | 移动浮窗位置 |
@@ -214,15 +238,17 @@ backend/
 │   │   ├── translate.py / explain.py / chat.py
 │   │   └── vision.py        # OCR / 看图 / 图文问答
 │   └── prompts.py
-└── tests/                   # pytest（42 用例，外部 API 全 mock）
+└── tests/                   # pytest（44 用例，外部 API 全 mock）
 
 frontend/
 ├── electron/                # 主进程：内嵌后端、全局热键、窗口管理
-│   ├── main.ts              # 双热键注册 + xdotool 自动复制
+│   ├── main.ts              # 双热键注册 + xdotool 自动复制 + 托盘/剪贴板
+│   ├── desktop.ts           # 开机自启与 Linux 桌面集成
 │   ├── backend.ts / windows.ts / preload.ts / ipc.ts
 └── src/                     # 渲染进程（React）
     ├── components/
     │   ├── PopupView.tsx    # 浮窗主体（Tab、音标、消息列表、追问）
+    │   ├── ImageAttachments.tsx # 多图、拖拽与剪贴板附件
     │   ├── MessageList.tsx  # 聊天气泡式历史 + 流式光标 + 公式渲染
     │   ├── PhoneticsBar.tsx / ThinkingPanel.tsx / ErrorBanner.tsx
     ├── hooks/
@@ -239,8 +265,8 @@ frontend/
 ## 🧪 测试
 
 ```bash
-cd backend && uv run python -m pytest -q          # 42 用例
-cd frontend && npx vitest run                     # 20 用例（SSE/API/Markdown）
+cd backend && uv run python -m pytest -q          # 44 用例
+cd frontend && npx vitest run                     # 21 用例（SSE/API/Markdown）
 cd frontend && npx tsc --noEmit                   # 类型检查
 ```
 
@@ -250,6 +276,8 @@ cd frontend && npx tsc --noEmit                   # 类型检查
 
 - **统一百炼接入**：DeepSeek 与 Qwen-VL 共用一个 Key 与端点
 - **同端点自动路由**：按「有无图片」自动切模型，前端零感知
+- **多图上下文**：附件在初始请求与后续追问间持续保留，图文对话不丢上下文
+- **桌面常驻**：单实例、托盘驻留与开机静默启动，窗口关闭后热键仍然可用
 - **思考模式可控**：默认关闭（快），浮窗「深度」按钮一键开启，请求级 `X-Enable-Thinking` header 控制
 - **聊天式历史**：前端维护完整对话，气泡 UI，支持新开会话而非无限追加
 - **流式性能治理**：高频 SSE delta 先写入缓冲，再以约 30 FPS 合并提交；完成消息缓存 Markdown 结果

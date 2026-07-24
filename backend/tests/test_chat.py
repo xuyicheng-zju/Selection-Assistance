@@ -8,6 +8,7 @@ import respx
 
 from app.services import chat as chat_svc
 from app.services.chat import ChatOutput
+from app.schemas import ChatRequest
 
 
 @respx.mock
@@ -129,3 +130,52 @@ async def test_chat_error_propagates(settings, deepseek):
             deepseek=deepseek,
         )
     assert exc.value.status_code == 429
+
+
+def test_standalone_chat_request_allows_empty_selected_text():
+    req = ChatRequest(initial_action="chat", question="你好")
+    assert req.selected_text == ""
+    assert req.initial_action == "chat"
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_multimodal_chat_stream_sends_all_images_and_history(qwen_vl):
+    bodies = []
+
+    def _side(request):
+        import json as _json
+
+        bodies.append(_json.loads(request.content))
+        return httpx.Response(
+            200,
+            text=(
+                'data: {"model":"qwen-vl-max","choices":[{"delta":{"content":"图像回答"}}]}\n'
+                "data: [DONE]\n"
+            ),
+            headers={"content-type": "text/event-stream"},
+        )
+
+    respx.post(
+        "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+    ).mock(side_effect=_side)
+
+    chunks = []
+    async for chunk in chat_svc.stream_chat_with_images(
+        selected_text="",
+        initial_action="chat",
+        history=[{"role": "assistant", "content": "上一轮回答"}],
+        question="比较两张图",
+        image_urls=[
+            "data:image/png;base64,AAAA",
+            "data:image/jpeg;base64,BBBB",
+        ],
+        qwen_vl=qwen_vl,
+    ):
+        chunks.append(chunk.content)
+
+    assert "".join(chunks) == "图像回答"
+    content = bodies[0]["messages"][-1]["content"]
+    assert [item["type"] for item in content] == ["image_url", "image_url", "text"]
+    assert "上一轮回答" in content[-1]["text"]
+    assert "比较两张图" in content[-1]["text"]

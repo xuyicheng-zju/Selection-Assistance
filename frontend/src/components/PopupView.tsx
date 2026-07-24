@@ -5,18 +5,25 @@ import { PhoneticsBar } from "./PhoneticsBar";
 import { MessageList } from "./MessageList";
 import { ThinkingPanel } from "./ThinkingPanel";
 import { ErrorBanner } from "./ErrorBanner";
+import {
+  ImageAttachments,
+  imageFilesFromClipboard,
+  mergeImageFiles,
+} from "./ImageAttachments";
 
 interface Props {
   text: string;
+  images?: File[];
   initialAction: Action;
   onClose: () => void;
 }
 
-/** 划词浮窗主体：Tab(翻译/解释) + 音标 + 结果 + 思考 + 追问输入框 */
-export function PopupView({ text, initialAction, onClose }: Props) {
+/** 划词浮窗主体：翻译 / 解释 / Chat + 多图输入 + 多轮追问。 */
+export function PopupView({ text, images = [], initialAction, onClose }: Props) {
   const sa = useSelectionAction(text);
   const [tab, setTab] = useState<Action>(initialAction);
   const [question, setQuestion] = useState("");
+  const [questionImages, setQuestionImages] = useState<File[]>([]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const startedRef = useRef(false);
 
@@ -25,7 +32,7 @@ export function PopupView({ text, initialAction, onClose }: Props) {
     if (startedRef.current) return;
     startedRef.current = true;
     setTab(initialAction);
-    sa.runInitial(initialAction, text);
+    sa.runInitial(initialAction, text, images);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -34,14 +41,16 @@ export function PopupView({ text, initialAction, onClose }: Props) {
     if (next === tab) return;
     setTab(next);
     startedRef.current = true;
-    sa.runInitial(next, text);
+    sa.runInitial(next, text, images);
   };
 
   const handleAsk = () => {
     const q = question.trim();
-    if (!q || sa.phase === "streaming") return;
+    if ((!q && questionImages.length === 0) || sa.phase === "streaming") return;
     setQuestion("");
-    sa.ask(q);
+    const attachments = questionImages;
+    setQuestionImages([]);
+    sa.ask(q, attachments);
   };
 
   const onKeyQuestion = (e: React.KeyboardEvent) => {
@@ -100,10 +109,18 @@ export function PopupView({ text, initialAction, onClose }: Props) {
           >
             解释
           </button>
+          <button
+            onClick={() => switchTab("chat")}
+            className={tab === "chat" ? "is-active" : ""}
+            role="tab"
+            aria-selected={tab === "chat"}
+          >
+            Chat
+          </button>
         </div>
-        <div className="source-preview" title={text}>
-          <span>选中内容</span>
-          <p>{text}</p>
+        <div className="source-preview" title={text || `${images.length} 张图片`}>
+          <span>{images.length > 0 ? `输入 · ${images.length} 张图片` : "输入内容"}</span>
+          <p>{text || "仅图片输入"}</p>
         </div>
       </div>
 
@@ -130,20 +147,37 @@ export function PopupView({ text, initialAction, onClose }: Props) {
 
       {/* 追问输入框 */}
       <footer className="composer-wrap">
+        <div className="mb-2">
+          <ImageAttachments
+            files={questionImages}
+            onChange={setQuestionImages}
+            compact
+          />
+        </div>
         <div className="composer">
           <textarea
             ref={inputRef}
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
+            onPaste={(event) => {
+              const pasted = imageFilesFromClipboard(event.clipboardData);
+              if (pasted.length > 0) {
+                event.preventDefault();
+                setQuestionImages((current) => mergeImageFiles(current, pasted));
+              }
+            }}
             onKeyDown={onKeyQuestion}
-            placeholder="围绕选中内容继续问…"
+            placeholder={tab === "chat" ? "继续 Chat，可粘贴图片…" : "围绕当前内容继续问…"}
             rows={1}
             className="selectable composer-input"
             aria-label="继续提问"
           />
           <button
             onClick={handleAsk}
-            disabled={sa.phase === "streaming" || !question.trim()}
+            disabled={
+              sa.phase === "streaming" ||
+              (!question.trim() && questionImages.length === 0)
+            }
             className="send-button"
             aria-label="发送问题"
           >
@@ -157,8 +191,9 @@ export function PopupView({ text, initialAction, onClose }: Props) {
           <button
             onClick={() => {
               if (sa.phase === "streaming" || sa.history.length === 0) return;
-              if (confirm("开新会话将清空历史并重新处理当前选区，确定？")) {
-                sa.runInitial(tab, text);
+              if (confirm("开新会话将清空历史并重新处理当前内容，确定？")) {
+                setQuestionImages([]);
+                sa.runInitial(tab, text, images);
               }
             }}
             disabled={sa.history.length === 0 || sa.phase === "streaming"}

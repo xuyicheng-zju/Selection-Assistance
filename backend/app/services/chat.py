@@ -8,8 +8,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import AsyncIterator, Optional
 
-from ..prompts import build_chat_messages
+from ..prompts import CHAT_SYSTEM, build_chat_messages, build_vision_chat_prompt
 from .deepseek import DeepSeekClient, DeepSeekError, StreamChunk
+from .qwen_vl import QwenVLClient, VStreamChunk
 
 
 @dataclass(slots=True)
@@ -54,4 +55,31 @@ def stream_chat(
     )
 
 
-__all__ = ["ChatOutput", "chat", "stream_chat", "DeepSeekError"]
+def stream_chat_with_images(
+    *,
+    selected_text: str,
+    initial_action: str,
+    history: list[dict],
+    question: str,
+    image_urls: list[str],
+    qwen_vl: QwenVLClient,
+) -> AsyncIterator[VStreamChunk]:
+    prompt = build_vision_chat_prompt(
+        selected_text, initial_action, history, question
+    )
+    return qwen_vl.stream(
+        prompt,
+        image_urls,
+        system=CHAT_SYSTEM,
+        temperature=0.35,
+        max_tokens=2048,
+    )
+
+
+__all__ = [
+    "ChatOutput",
+    "chat",
+    "stream_chat",
+    "stream_chat_with_images",
+    "DeepSeekError",
+]

@@ -160,3 +160,18 @@ export function streamUrl(kind: "translate" | "explain"): string {
 export function chatStreamUrl(): string {
   return `${getBackendBase()}/api/chat/stream`;
 }
+
+/** Chat 无图保持 JSON 兼容；有图时切为 multipart 并支持多文件。 */
+export function chatStreamBody(
+  req: ChatRequest,
+  images: File[] = []
+): string | FormData {
+  if (images.length === 0) return JSON.stringify(req);
+  const form = new FormData();
+  form.append("selected_text", req.selected_text);
+  form.append("initial_action", req.initial_action);
+  form.append("history", JSON.stringify(req.history));
+  form.append("question", req.question);
+  for (const image of images) form.append("images", image);
+  return form;
+}

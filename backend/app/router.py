@@ -55,6 +55,8 @@ from .services.qwen_vl import QwenVLClient, QwenVLError
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["selection"])
+MAX_IMAGES = 8
+MAX_IMAGE_BYTES = 12 * 1024 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -81,12 +83,17 @@ def _thinking_from_request(request: Request) -> Optional[bool]:
 async def _collect_images(files: list[UploadFile]) -> tuple[list[str], list[bytes]]:
     urls: list[str] = []
     raws: list[bytes] = []
-    for f in files:
-        if f is None or not f.filename:
-            continue
+    valid_files = [f for f in files if f is not None and f.filename]
+    if len(valid_files) > MAX_IMAGES:
+        raise _err("too_many_images", f"最多上传 {MAX_IMAGES} 张图片", 400)
+    for f in valid_files:
+        if f.content_type and not f.content_type.startswith("image/"):
+            raise _err("unsupported_file", f"{f.filename} 不是支持的图片格式", 415)
         raw = await f.read()
         if not raw:
             continue
+        if len(raw) > MAX_IMAGE_BYTES:
+            raise _err("image_too_large", f"{f.filename} 超过 12 MB", 413)
         mime = f.content_type or "image/png"
         raws.append(raw)
         urls.extend(images_to_data_urls([raw], mime=mime))
@@ -328,12 +335,44 @@ async def chat_endpoint(
 @router.post("/chat/stream")
 async def chat_stream(
     request: Request,
-    req: ChatRequest,
     deepseek: DeepSeekClient = Depends(get_deepseek),
+    qwen_vl: Optional[QwenVLClient] = Depends(get_optional_qwen_vl),
 ):
-    """多轮追问 SSE 流式。事件序列：thinking? -> delta* -> done / error。"""
+    """多轮 Chat SSE。
+
+    兼容原 JSON 请求；multipart 请求可额外携带多个 images 字段。
+    有图片自动走 Qwen-VL，无图继续走 DeepSeek。
+    """
     cfg = settings()
     enable_thinking = _thinking_from_request(request)
+    content_type = request.headers.get("content-type", "")
+    image_urls: list[str] = []
+
+    try:
+        if content_type.startswith("multipart/form-data"):
+            form = await request.form()
+            raw_history = str(form.get("history") or "[]")
+            parsed_history = json.loads(raw_history)
+            req = ChatRequest.model_validate(
+                {
+                    "selected_text": str(form.get("selected_text") or ""),
+                    "initial_action": str(form.get("initial_action") or "chat"),
+                    "history": parsed_history,
+                    "question": str(form.get("question") or ""),
+                }
+            )
+            files = [
+                item
+                for item in form.getlist("images")
+                if hasattr(item, "filename") and hasattr(item, "read")
+            ]
+            image_urls, _ = await _collect_images(files)  # type: ignore[arg-type]
+        else:
+            req = ChatRequest.model_validate(await request.json())
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _err("bad_request", f"Chat 请求格式错误: {exc}", 400) from exc
 
     async def gen():
         if not req.question.strip():
@@ -341,21 +380,38 @@ async def chat_stream(
             return
         try:
             model = ""
-            async for chunk in chat_svc.stream_chat(
-                selected_text=req.selected_text,
-                initial_action=req.initial_action,
-                history=[m.model_dump() for m in req.history],
-                question=req.question,
-                deepseek=deepseek,
-                enable_thinking=enable_thinking,
-            ):
-                model = model or chunk.model
-                if chunk.reasoning:
-                    yield _sse("thinking", {"delta": chunk.reasoning})
-                if chunk.content:
-                    yield _sse("delta", {"delta": chunk.content})
-            yield _sse("done", {"model": model or cfg.deepseek_model})
+            if image_urls:
+                qv = _safe_route_qwen("qwen_vl", qwen_vl)
+                async for chunk in chat_svc.stream_chat_with_images(
+                    selected_text=req.selected_text,
+                    initial_action=req.initial_action,
+                    history=[m.model_dump() for m in req.history],
+                    question=req.question,
+                    image_urls=image_urls,
+                    qwen_vl=qv,
+                ):
+                    model = model or chunk.model
+                    if chunk.content:
+                        yield _sse("delta", {"delta": chunk.content})
+                yield _sse("done", {"model": model or cfg.qwen_vl_model})
+            else:
+                async for chunk in chat_svc.stream_chat(
+                    selected_text=req.selected_text,
+                    initial_action=req.initial_action,
+                    history=[m.model_dump() for m in req.history],
+                    question=req.question,
+                    deepseek=deepseek,
+                    enable_thinking=enable_thinking,
+                ):
+                    model = model or chunk.model
+                    if chunk.reasoning:
+                        yield _sse("thinking", {"delta": chunk.reasoning})
+                    if chunk.content:
+                        yield _sse("delta", {"delta": chunk.content})
+                yield _sse("done", {"model": model or cfg.deepseek_model})
         except DeepSeekError as e:
+            yield _sse("error", {"code": e.code, "message": str(e)})
+        except QwenVLError as e:
             yield _sse("error", {"code": e.code, "message": str(e)})
         except Exception as e:  # noqa: BLE001
             logger.exception("chat/stream error")

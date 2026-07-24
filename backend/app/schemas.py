@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 class Action(str, Enum):
     translate = "translate"
     explain = "explain"
+    chat = "chat"
 
 
 class TextKind(str, Enum):
@@ -129,8 +130,8 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     """多轮追问。前端维护完整历史，每次把历史一起发上来。"""
 
-    selected_text: str = Field(..., description="用户最初选中的文本")
-    initial_action: Literal["translate", "explain"] = Field(
+    selected_text: str = Field(default="", description="用户最初选中的文本；独立 Chat 可为空")
+    initial_action: Literal["translate", "explain", "chat"] = Field(
         default="explain", description="初始动作"
     )
     history: list[ChatMessage] = Field(

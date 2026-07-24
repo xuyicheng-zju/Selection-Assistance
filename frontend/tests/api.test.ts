@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { translate, chat, detect, explain } from "../src/lib/api";
+import {
+  translate,
+  chat,
+  chatStreamBody,
+  detect,
+  explain,
+} from "../src/lib/api";
 import { BackendError } from "../src/lib/types";
 
 describe("api 客户端", () => {
@@ -45,6 +51,29 @@ describe("api 客户端", () => {
     expect(calls[0].init.headers).toEqual({ "Content-Type": "application/json" });
     const body = JSON.parse(calls[0].init.body as string);
     expect(body.question).toBe("举例");
+  });
+
+  it("多图 Chat 构造 multipart 并保留完整历史", () => {
+    const images = [
+      new File(["a"], "one.png", { type: "image/png" }),
+      new File(["b"], "two.jpg", { type: "image/jpeg" }),
+    ];
+    const body = chatStreamBody(
+      {
+        selected_text: "",
+        initial_action: "chat",
+        history: [{ role: "assistant", content: "上一轮" }],
+        question: "比较图片",
+      },
+      images
+    );
+    expect(body).toBeInstanceOf(FormData);
+    const form = body as FormData;
+    expect(form.getAll("images")).toHaveLength(2);
+    expect(form.get("initial_action")).toBe("chat");
+    expect(JSON.parse(String(form.get("history")))).toEqual([
+      { role: "assistant", content: "上一轮" },
+    ]);
   });
 
   it("detect 用 GET 查询参数", async () => {

@@ -6,23 +6,27 @@
  */
 import { BrowserWindow, screen, shell } from "electron";
 import path from "node:path";
+import { resolveAppIconPath } from "./desktop";
 
 const DEV = process.env.NODE_ENV === "development";
 
 /** 修正入口加载（DEV→URL，生产→文件） */
-function load(win: BrowserWindow, file: string) {
+function load(win: BrowserWindow, file: string): Promise<void> {
   if (DEV) {
-    win.loadURL(`http://localhost:5173/${file}`);
-  } else {
-    win.loadFile(path.join(__dirname, "..", "dist", file));
+    return win.loadURL(`http://localhost:5173/${file}`);
   }
+  return win.loadFile(path.join(__dirname, "..", "dist", file));
 }
 
-export function createMainWindow(): BrowserWindow {
+export function createMainWindow(showOnReady = true): BrowserWindow {
   const win = new BrowserWindow({
-    width: 760,
-    height: 560,
+    width: 880,
+    height: 700,
+    minWidth: 760,
+    minHeight: 600,
     title: "划词助手",
+    icon: resolveAppIconPath(),
+    show: false,
     backgroundColor: "#f9fafb",
     webPreferences: {
       contextIsolation: true,
@@ -40,7 +44,14 @@ export function createMainWindow(): BrowserWindow {
   });
 
   if (DEV) win.webContents.openDevTools({ mode: "detach" });
-  load(win, "index.html");
+  void load(win, "index.html")
+    .then(() => {
+      if (showOnReady && !win.isDestroyed()) {
+        win.show();
+        console.log("[window] main window loaded and shown");
+      }
+    })
+    .catch((err) => console.error("[window] failed to load main window:", err));
   return win;
 }
 
@@ -54,6 +65,7 @@ export function createActionButtonWindow(): BrowserWindow {
     movable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
+    icon: resolveAppIconPath(),
     show: false,
     transparent: true,
     backgroundColor: "#00000000",
@@ -66,7 +78,9 @@ export function createActionButtonWindow(): BrowserWindow {
       preload: path.join(__dirname, "preload.js"),
     },
   });
-  load(win, "actionButton.html");
+  void load(win, "actionButton.html").catch((err) =>
+    console.error("[window] failed to load action button:", err)
+  );
   return win;
 }
 
@@ -82,6 +96,7 @@ export function createPopupWindow(): BrowserWindow {
     alwaysOnTop: true,
     skipTaskbar: true,
     show: false,
+    icon: resolveAppIconPath(),
     transparent: false,
     backgroundColor: "#ffffff",
     roundedCorners: true,
@@ -93,7 +108,9 @@ export function createPopupWindow(): BrowserWindow {
       devTools: DEV,
     },
   });
-  load(win, "popup.html");
+  void load(win, "popup.html").catch((err) =>
+    console.error("[window] failed to load popup:", err)
+  );
   return win;
 }
 
