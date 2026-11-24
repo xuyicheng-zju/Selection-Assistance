@@ -61,6 +61,7 @@ async function postForm<T>(path: string, form: FormData): Promise<T> {
   const resp = await fetch(`${base}${path}`, {
     method: "POST",
     body: form,
+    headers: typeof window === "undefined" ? undefined : window.doubaoAPI?.getBackendHeaders?.(),
   });
   if (!resp.ok) throw await parseError(resp);
   return (await resp.json()) as T;
@@ -70,7 +71,7 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   const base = getBackendBase();
   const resp = await fetch(`${base}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { ...(typeof window === "undefined" ? {} : window.doubaoAPI?.getBackendHeaders?.()), "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
   if (!resp.ok) throw await parseError(resp);

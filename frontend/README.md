@@ -29,6 +29,12 @@ npm run dev          # 开发：Vite(5173) + Electron 同时起，后端独立�
 
 开发模式下，Electron 加载 `http://localhost:5173`，后端需另开终端 `uv run uvicorn app.main:app --port 8000`。
 
+### 安装为 macOS 桌面 App
+
+运行 `npm ci && npm run install:mac`。安装使用本机 Codex CLI 和 `uv`，并在登录后从菜单栏静默启动。在应用后端的 `.env` 中填写 `DASHSCOPE_API_KEY` 即可使用默认的阿里云百炼 `qwen3.8-flash`。
+
+在主窗口的「模型服务」中可直接切换阿里云百炼或 Codex app-server。Codex 可单独选择模型和推理强度。应用记住上次选择，下一条请求立即使用选中的后端。偏好设置支持开关自启、授权跨应用取词和修改热键。
+
 ### 安装为 Linux 桌面 App
 
 ```bash

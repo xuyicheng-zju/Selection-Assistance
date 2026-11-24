@@ -8,6 +8,7 @@ from typing import AsyncIterator, Optional
 from ..prompts import EXPLAIN_SYSTEM, explain_user_prompt
 from ..schemas import Phonetics
 from . import vision as vision_svc
+from .codex import CodexClient
 from .deepseek import DeepSeekClient, DeepSeekError, StreamChunk
 from .phonetics import get_phonetics
 from .qwen_vl import QwenVLClient, VStreamChunk
@@ -28,7 +29,7 @@ async def explain_text(
     context: Optional[str],
     style: str,
     settings,
-    deepseek: DeepSeekClient,
+    deepseek: DeepSeekClient | CodexClient,
     enable_thinking: Optional[bool] = None,
 ) -> ExplainOutput:
     phonetics = await get_phonetics(text, settings=settings, deepseek=deepseek)
@@ -53,7 +54,7 @@ async def explain_image(
     text: Optional[str],
     context: Optional[str],
     image_urls: list[str],
-    qwen_vl: QwenVLClient,
+    qwen_vl: QwenVLClient | CodexClient,
 ) -> ExplainOutput:
     result = await vision_svc.explain_with_image(qwen_vl, image_urls, text, context)
     return ExplainOutput(
@@ -71,7 +72,7 @@ async def stream_explain_text(
     context: Optional[str],
     style: str,
     settings,
-    deepseek: DeepSeekClient,
+    deepseek: DeepSeekClient | CodexClient,
     enable_thinking: Optional[bool] = None,
 ) -> tuple[Phonetics, AsyncIterator[StreamChunk]]:
     phonetics = await get_phonetics(text, settings=settings, deepseek=deepseek)
@@ -90,7 +91,7 @@ def stream_explain_image(
     text: Optional[str],
     context: Optional[str],
     image_urls: list[str],
-    qwen_vl: QwenVLClient,
+    qwen_vl: QwenVLClient | CodexClient,
 ) -> AsyncIterator[VStreamChunk]:
     return vision_svc.stream_explain_with_image(qwen_vl, image_urls, text, context)
 

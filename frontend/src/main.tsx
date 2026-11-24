@@ -1,378 +1,446 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import type { AppSettings } from "../electron/ipc";
-import appIconUrl from "../assets/icon.png";
-import {
-  ImageAttachments,
-  imageFilesFromClipboard,
-  mergeImageFiles,
-} from "./components/ImageAttachments";
+import type { AppSettings, ModelBackend } from "../electron/ipc";
+import { BrandLogo } from "./components/BrandLogo";
+import { ClipboardIcon, ImageAttachments, imageFilesFromClipboard, mergeImageFiles } from "./components/ImageAttachments";
 import { PopupView } from "./components/PopupView";
 import type { Action } from "./lib/types";
 import { getBackendBase } from "./lib/api";
 import "./styles/index.css";
+import "./styles/workspace.css";
 
-type Health = "checking" | "ok" | "fail";
+type BackendHealth = {
+  ok: boolean;
+  provider: ModelBackend;
+  model: string;
+  effort?: string;
+  vision_model?: string;
+};
 
-function Toggle({
-  checked,
-  onChange,
-  label,
-}: {
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      onClick={() => onChange(!checked)}
-      className={`relative h-6 w-11 shrink-0 rounded-full border transition-all duration-200 ${
-        checked
-          ? "border-[#5b6ef5] bg-[#5b6ef5] shadow-[0_5px_14px_rgba(91,110,245,0.28)]"
-          : "border-slate-200 bg-slate-200"
-      }`}
-    >
-      <span
-        className={`absolute top-0.5 h-[18px] w-[18px] rounded-full bg-white shadow-sm transition-transform duration-200 ${
-          checked ? "translate-x-[20px]" : "translate-x-0.5"
-        }`}
-      />
-    </button>
-  );
+type CodexModel = { id: string; label: string; efforts: string[]; default_effort: string; image: boolean };
+
+type Submission = { action: Action; text: string; images: File[]; targetLang: string };
+
+const IS_MAC = navigator.platform.startsWith("Mac");
+
+function formatKeycaps(accelerator: string): string[] {
+  return accelerator
+    .split("+")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((token) => {
+      const lower = token.toLowerCase();
+      if (lower === "commandorcontrol" || lower === "cmdorctrl") return IS_MAC ? "⌘" : "Ctrl";
+      if (lower === "command" || lower === "cmd" || lower === "super") return "⌘";
+      if (lower === "control" || lower === "ctrl") return IS_MAC ? "⌃" : "Ctrl";
+      if (lower === "shift") return IS_MAC ? "⇧" : "Shift";
+      if (lower === "alt" || lower === "option") return IS_MAC ? "⌥" : "Alt";
+      return token.length === 1 ? token.toUpperCase() : token;
+    });
 }
 
-function SettingRow({
-  title,
-  description,
-  checked,
-  onChange,
-}: {
-  title: string;
+function SettingRow({ label, description, checked, onChange, disabled }: {
+  label: string;
   description: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
+  disabled: boolean;
 }) {
   return (
-    <div className="flex min-h-[68px] items-center justify-between gap-5 rounded-2xl border border-slate-200/80 bg-white px-4 py-3 transition-colors hover:border-indigo-200">
-      <div className="min-w-0">
-        <div className="text-[13px] font-semibold text-slate-700">{title}</div>
-        <div className="mt-1 text-[11px] leading-4 text-slate-400">{description}</div>
-      </div>
-      <Toggle checked={checked} onChange={onChange} label={title} />
-    </div>
+    <label className="setting-row">
+      <span><strong>{label}</strong><small>{description}</small></span>
+      <input type="checkbox" role="switch" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} />
+    </label>
   );
 }
 
-function HealthPill({
-  health,
-  message,
-}: {
-  health: Health;
-  message: string;
+function HotkeyField({ label, value, onCommit }: {
+  label: string;
+  value: string;
+  onCommit: (next: string) => void;
 }) {
-  const label =
-    health === "ok" ? "服务运行中" : health === "checking" ? "正在连接" : "服务异常";
-  const dot =
-    health === "ok"
-      ? "bg-emerald-500"
-      : health === "checking"
-      ? "bg-amber-400 animate-pulse"
-      : "bg-rose-500";
+  const [draft, setDraft] = useState(value);
+  useEffect(() => setDraft(value), [value]);
+  const keycaps = formatKeycaps(draft || value);
+
   return (
-    <div
-      title={message}
-      className="flex items-center gap-2 rounded-full border border-white/80 bg-white/75 px-3 py-1.5 text-[11px] font-medium text-slate-600 shadow-sm backdrop-blur"
-    >
-      <span className={`h-2 w-2 rounded-full ${dot}`} />
-      {label}
-    </div>
+    <label className="hotkey-field">
+      <div className="hotkey-head">
+        <span>{label}</span>
+        <span className="keycap-group" aria-hidden="true">
+          {keycaps.map((cap, index) => (
+            <kbd key={`${cap}-${index}`} className="keycap">{cap}</kbd>
+          ))}
+        </span>
+      </div>
+      <input
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => {
+          const trimmed = draft.trim();
+          if (trimmed && trimmed !== value) onCommit(trimmed);
+          else setDraft(value);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            (event.currentTarget as HTMLInputElement).blur();
+          }
+        }}
+        spellCheck={false}
+      />
+    </label>
   );
 }
 
 function MainApp() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [health, setHealth] = useState<Health>("checking");
-  const [healthMsg, setHealthMsg] = useState("");
-  const [testText, setTestText] = useState("serendipity");
-  const [testImages, setTestImages] = useState<File[]>([]);
-  const [previewAction, setPreviewAction] = useState<Action | null>(null);
+  const [health, setHealth] = useState<BackendHealth | "checking" | "offline">("checking");
+  const [accessibility, setAccessibility] = useState<boolean | null>(null);
+  const [catalog, setCatalog] = useState<CodexModel[]>([]);
+  const [catalogFailed, setCatalogFailed] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [text, setText] = useState("");
+  const [images, setImages] = useState<File[]>([]);
+  const [targetLang, setTargetLang] = useState("zh");
+  const [submission, setSubmission] = useState<{ input: Submission; id: number } | null>(null);
+  const [canSwitchBackend] = useState(() => Boolean(window.doubaoAPI?.getBackendHeaders()["X-Model-Backend"]));
+  const healthCheck = useRef<AbortController>();
+
+  const checkHealth = async () => {
+    healthCheck.current?.abort();
+    const controller = new AbortController();
+    healthCheck.current = controller;
+    const { signal } = controller;
+    const headers = window.doubaoAPI?.getBackendHeaders();
+    const base = getBackendBase();
+    setHealth("checking");
+    setCatalogFailed(false);
+    try {
+      const response = await fetch(`${base}/api/health`, { headers, signal: AbortSignal.any([signal, AbortSignal.timeout(3000)]) });
+      if (!response.ok) throw new Error(String(response.status));
+      const status: BackendHealth = await response.json();
+      if (!status.ok || !status.model) throw new Error("模型服务离线");
+      if (signal.aborted) return;
+      setHealth(status);
+      if (status.provider !== "codex") return;
+    } catch {
+      if (!signal.aborted) setHealth("offline");
+      return;
+    }
+
+    try {
+      const response = await fetch(`${base}/api/models`, { headers, signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]) });
+      if (!response.ok) throw new Error(String(response.status));
+      const result: { models: CodexModel[] } = await response.json();
+      if (!signal.aborted) setCatalog(result.models);
+    } catch {
+      if (!signal.aborted) setCatalogFailed(true);
+    }
+  };
 
   useEffect(() => {
     const api = window.doubaoAPI;
-    api?.getSettings().then((s) => setSettings(s));
+    api?.getSettings().then(setSettings);
+    void checkHealth();
+    const checkAccess = () => api?.accessibility().then(setAccessibility);
+    void checkAccess();
+    window.addEventListener("focus", checkAccess);
 
-    const backendBase = getBackendBase();
-    setHealthMsg(`正在连接 ${backendBase}/api/health …`);
-    fetch(`${backendBase}/api/health`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json();
-      })
-      .then((data) => {
-        if (data.ok) {
-          setHealth("ok");
-          setHealthMsg(`已连接 ${backendBase}`);
-        } else {
-          setHealth("fail");
-          setHealthMsg(`响应异常: ${JSON.stringify(data)}`);
-        }
-      })
-      .catch((err) => {
-        setHealth("fail");
-        setHealthMsg(`连接失败: ${err?.message || err}`);
-      });
-
-    // 主窗口中的选区也可触发悬浮操作条。
     const onMouseUp = (event: MouseEvent) => {
       const selected = window.getSelection()?.toString().trim();
-      if (!selected) return;
-      api?.reportSelection(
-        selected,
-        window.screenX + event.clientX,
-        window.screenY + event.clientY
-      );
+      api?.reportSelection(selected ?? "", window.screenX + event.clientX, window.screenY + event.clientY);
     };
     document.addEventListener("mouseup", onMouseUp);
-    return () => document.removeEventListener("mouseup", onMouseUp);
+    return () => {
+      healthCheck.current?.abort();
+      document.removeEventListener("mouseup", onMouseUp);
+      window.removeEventListener("focus", checkAccess);
+    };
   }, []);
 
-  const saveSettings = (patch: Partial<AppSettings>) => {
-    window.doubaoAPI?.setSettings(patch).then((next) => setSettings(next));
+  const saveSettings = async (patch: Partial<AppSettings>) => {
+    const api = window.doubaoAPI;
+    if (!api) return;
+    setSaving(true);
+    setNotice("");
+    try {
+      setSettings(await api.setSettings(patch));
+      if (patch.modelBackend) void checkHealth();
+    } catch (error) {
+      setSettings(await api.getSettings());
+      setNotice(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const updateDraft = (patch: Partial<AppSettings>) => {
-    setSettings((current) => (current ? { ...current, ...patch } : current));
+  const submit = (action: Action) => {
+    if (!text.trim() && !images.length) return;
+    setSubmission((previous) => ({
+      input: { action, text: text.trim(), images, targetLang },
+      id: (previous?.id ?? 0) + 1,
+    }));
   };
+
+  const online = typeof health === "object";
+  const useCodex = online && health.provider === "codex";
+  const activeModel = settings?.codexModel ?? (online ? health.model : "");
+  const activeEffort = settings?.codexEffort ?? (online ? health.effort : undefined);
+  const modelInfo = catalog.find((model) => model.id === activeModel);
+  const changeModel = (id: string) => {
+    const model = catalog.find((entry) => entry.id === id);
+    if (!model) return;
+    const effort = activeEffort && model.efforts.includes(activeEffort) ? activeEffort : model.default_effort;
+    void saveSettings({ codexModel: id, codexEffort: effort });
+  };
+  const hasInput = Boolean(text.trim() || images.length);
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#f4f6fb]">
-      <div className="pointer-events-none absolute -left-24 -top-32 h-80 w-80 rounded-full bg-indigo-200/40 blur-3xl" />
-      <div className="pointer-events-none absolute -right-16 top-28 h-72 w-72 rounded-full bg-cyan-100/55 blur-3xl" />
-
-      <main className="relative mx-auto flex min-h-screen max-w-[980px] flex-col gap-4 p-6">
-        <header className="flex items-center justify-between pb-1">
-          <div className="flex items-center gap-3">
-            <div className="grid h-12 w-12 place-items-center rounded-2xl border border-white bg-white shadow-[0_10px_30px_rgba(50,64,120,0.14)]">
-              <img
-                src={appIconUrl}
-                alt=""
-                className="h-10 w-10 object-contain"
-                draggable={false}
-              />
-            </div>
-            <div>
-              <h1 className="text-[18px] font-bold tracking-tight text-slate-800">
-                划词助手
-              </h1>
-              <p className="mt-0.5 text-[11px] tracking-wide text-slate-400">
-                SELECT · UNDERSTAND · CONTINUE
-              </p>
-            </div>
+    <main className={`workspace ${IS_MAC ? "platform-mac" : ""}`}>
+      <header className="workspace-header draggable">
+        <div className="workspace-brand">
+          <BrandLogo size={38} className="workspace-brand-logo" />
+          <div>
+            <h1>划词助手</h1>
+            <p>Selection Assistance</p>
           </div>
-          <HealthPill health={health} message={healthMsg} />
-        </header>
+        </div>
+        <button
+          type="button"
+          className={`service-status no-drag ${online ? "online" : health === "checking" ? "checking" : "offline"}`}
+          onClick={checkHealth}
+          title={`${getBackendBase()} · 点击重新检查`}
+        >
+          <i aria-hidden="true" />
+          {online ? "本地服务已连接" : health === "checking" ? "正在连接" : "服务离线 · 重试"}
+        </button>
+      </header>
 
-        <div className="grid grid-cols-[1.25fr_0.75fr] gap-4">
-          <section className="relative overflow-hidden rounded-[22px] border border-white/90 bg-white/90 p-5 shadow-[0_18px_50px_rgba(44,56,94,0.08)] backdrop-blur">
-            <div className="absolute right-0 top-0 h-28 w-28 rounded-bl-[80px] bg-gradient-to-bl from-indigo-100/80 to-transparent" />
-            <div className="relative">
-              <div className="mb-3 flex items-start justify-between gap-4">
-                <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-indigo-500">
-                    Quick try
-                  </div>
-                  <h2 className="mt-1 text-[15px] font-semibold text-slate-800">
-                    先试一句
-                  </h2>
-                </div>
-                <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-[10px] font-medium text-indigo-600">
-                  流式输出
+      <div className="workspace-grid">
+        <div className="workspace-primary">
+          <section className="input-panel" aria-labelledby="input-title">
+            <div className="panel-heading">
+              <div className="panel-title-group">
+                <h2 id="input-title">文本与图片</h2>
+                <span className="shortcut-hint">{IS_MAC ? "⌘⏎ 快捷翻译" : "Ctrl+Enter 翻译"}</span>
+              </div>
+              {window.doubaoAPI && (
+                <button
+                  type="button"
+                  className="pill-ghost-button"
+                  onClick={async () => {
+                    const value = await window.doubaoAPI?.readClipboardText();
+                    if (value) setText(value);
+                  }}
+                >
+                  <ClipboardIcon />
+                  粘贴文本
+                </button>
+              )}
+            </div>
+            <textarea
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey) && !event.nativeEvent.isComposing) {
+                  event.preventDefault();
+                  submit("translate");
+                }
+              }}
+              onPaste={(event) => {
+                const pasted = imageFilesFromClipboard(event.clipboardData);
+                if (pasted.length) {
+                  event.preventDefault();
+                  setImages((current) => mergeImageFiles(current, pasted));
+                }
+              }}
+              rows={5}
+              className="selectable workspace-input"
+              aria-label="输入文本"
+              placeholder="输入、粘贴文本或图片，也可以直接在任意应用中划词唤醒…"
+            />
+            <ImageAttachments files={images} onChange={setImages} />
+            <div className="input-actions">
+              <button type="button" className="workspace-button primary" onClick={() => submit("translate")} disabled={!hasInput}>
+                <TranslateIcon />
+                翻译
+              </button>
+              <button type="button" className="workspace-button" onClick={() => submit("explain")} disabled={!hasInput}>
+                <ExplainIcon />
+                解释
+              </button>
+              <button type="button" className="workspace-button" onClick={() => submit("chat")} disabled={!hasInput}>
+                <ChatIcon />
+                聊天
+              </button>
+              <label className="language-choice">
+                <span>译为</span>
+                <span className="select-wrap">
+                  <select value={targetLang} onChange={(event) => setTargetLang(event.target.value)}>
+                    <option value="zh">中文</option><option value="en">英文</option><option value="ja">日文</option>
+                    <option value="ko">韩文</option><option value="fr">法文</option><option value="de">德文</option>
+                  </select>
+                  <ChevronDownIcon />
                 </span>
-              </div>
-              <textarea
-                value={testText}
-                onChange={(event) => setTestText(event.target.value)}
-                onPaste={(event) => {
-                  const images = imageFilesFromClipboard(event.clipboardData);
-                  if (images.length > 0) {
-                    event.preventDefault();
-                    setTestImages((current) => mergeImageFiles(current, images));
-                  }
-                }}
-                rows={3}
-                className="selectable w-full resize-none rounded-2xl border border-slate-200/90 bg-slate-50/80 px-4 py-3 text-[13px] leading-5 text-slate-700 outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-4 focus:ring-indigo-100/60"
-                placeholder="输入要翻译、解释或 Chat 的内容…"
-              />
-              <div className="mt-2">
-                <ImageAttachments files={testImages} onChange={setTestImages} />
-              </div>
-              <div className="mt-3 flex items-center justify-between gap-3">
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setPreviewAction("translate")}
-                    disabled={!testText.trim() && testImages.length === 0}
-                    className="rounded-xl bg-[#5b6ef5] px-5 py-2 text-[12px] font-semibold text-white shadow-[0_8px_20px_rgba(91,110,245,0.25)] transition hover:-translate-y-0.5 hover:bg-[#4e60e8] disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    翻译
-                  </button>
-                  <button
-                    onClick={() => setPreviewAction("explain")}
-                    disabled={!testText.trim() && testImages.length === 0}
-                    className="rounded-xl border border-slate-200 bg-white px-5 py-2 text-[12px] font-semibold text-slate-600 transition hover:-translate-y-0.5 hover:border-indigo-200 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    解释
-                  </button>
-                  <button
-                    onClick={() => setPreviewAction("chat")}
-                    disabled={!testText.trim() && testImages.length === 0}
-                    className="rounded-xl border border-cyan-200 bg-cyan-50 px-5 py-2 text-[12px] font-semibold text-cyan-700 transition hover:-translate-y-0.5 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    Chat
-                  </button>
-                </div>
-                <span className="text-[10px] text-slate-400">文字 · 多图 · Markdown</span>
-              </div>
+              </label>
             </div>
           </section>
 
-          <aside className="rounded-[22px] bg-gradient-to-br from-[#172033] to-[#283452] p-5 text-white shadow-[0_20px_55px_rgba(23,32,51,0.18)]">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-300">
-                Always ready
-              </span>
-              <span className="grid h-7 w-7 place-items-center rounded-full bg-emerald-400/15 text-emerald-300">
-                ✓
-              </span>
-            </div>
-            <h2 className="mt-4 text-[16px] font-semibold">后台常驻已开启</h2>
-            <p className="mt-1 text-[11px] leading-5 text-slate-300">
-              关闭窗口不会退出，翻译与解释热键始终可用。
-            </p>
-            <div className="mt-5 space-y-2.5">
-              <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2.5">
-                <span className="text-[11px] text-slate-300">翻译</span>
-                <kbd className="font-mono text-[10px] text-white">Ctrl ⇧ D</kbd>
-              </div>
-              <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2.5">
-                <span className="text-[11px] text-slate-300">解释</span>
-                <kbd className="font-mono text-[10px] text-white">Ctrl ⇧ E</kbd>
-              </div>
-              <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2.5">
-                <span className="text-[11px] text-slate-300">Chat</span>
-                <kbd className="font-mono text-[10px] text-cyan-200">文字 + 多图</kbd>
-              </div>
-            </div>
-          </aside>
+          {submission && (
+            <section className="workspace-result" aria-label="结果与追问">
+              <PopupView
+                key={submission.id}
+                text={submission.input.text}
+                images={submission.input.images}
+                initialAction={submission.input.action}
+                targetLang={submission.input.targetLang}
+                embedded
+                onClose={() => setSubmission(null)}
+              />
+            </section>
+          )}
         </div>
 
-        {previewAction && (testText.trim() || testImages.length > 0) && (
-          <section className="animate-fade-in overflow-hidden rounded-[22px] border border-slate-200/80 bg-white shadow-[0_18px_50px_rgba(44,56,94,0.1)]">
-            <div className="h-[430px]">
-              <PopupView
-                key={`${testText}-${previewAction}-${testImages
-                  .map((image) => `${image.name}:${image.lastModified}`)
-                  .join("|")}`}
-                text={testText}
-                images={testImages}
-                initialAction={previewAction}
-                onClose={() => setPreviewAction(null)}
-              />
+        <aside className="workspace-sidebar">
+          <section className="model-panel" aria-label="模型服务">
+            <div className="model-panel-head">
+              <h2>模型服务</h2>
+              <span className={`provider-pill ${online ? "is-online" : ""}`}>
+                {online ? "已连接" : health === "checking" ? "连接中" : "离线"}
+              </span>
             </div>
+            {settings && canSwitchBackend && (
+              <div className="model-fields">
+                <label htmlFor="model-backend">模型后端</label>
+                <div className="select-wrap">
+                  <select id="model-backend" value={settings.modelBackend} disabled={saving}
+                    onChange={(event) => saveSettings({ modelBackend: event.target.value as ModelBackend })}>
+                    <option value="dashscope">阿里云百炼</option>
+                    <option value="codex">Codex app-server</option>
+                  </select>
+                  <ChevronDownIcon />
+                </div>
+              </div>
+            )}
+            {useCodex && catalog.length > 0 ? (
+              <div className="model-fields">
+                <label htmlFor="codex-model">模型</label>
+                <div className="select-wrap">
+                  <select id="codex-model" title={modelInfo?.label} value={activeModel} disabled={saving} onChange={(event) => changeModel(event.target.value)}>
+                    {!modelInfo && <option value={activeModel} disabled>{activeModel}</option>}
+                    {catalog.map((model) => <option key={model.id} value={model.id}>{model.id}</option>)}
+                  </select>
+                  <ChevronDownIcon />
+                </div>
+                <label htmlFor="codex-effort">推理强度</label>
+                <div className="select-wrap">
+                  <select id="codex-effort" value={activeEffort} disabled={!modelInfo || saving}
+                    onChange={(event) => saveSettings({ codexModel: activeModel, codexEffort: event.target.value })}>
+                    {(modelInfo?.efforts ?? [activeEffort]).map((effort) => <option key={effort} value={effort}>{effort}</option>)}
+                  </select>
+                  <ChevronDownIcon />
+                </div>
+                {modelInfo && !modelInfo.image && <small className="model-capability">当前模型仅支持文本</small>}
+              </div>
+            ) : (
+              <div className="model-detail">
+                <strong>{online ? health.model : "等待本地服务连接…"}</strong>
+                {online && (health.effort || health.vision_model) && <span>{health.effort || health.vision_model}</span>}
+                {useCodex && catalogFailed && <button className="text-button" onClick={checkHealth}>模型列表加载失败 · 重试</button>}
+              </div>
+            )}
           </section>
-        )}
 
-        {settings ? (
-          <section className="rounded-[22px] border border-white/90 bg-white/85 p-5 shadow-[0_16px_46px_rgba(44,56,94,0.07)] backdrop-blur">
-            <div className="mb-4 flex items-end justify-between">
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-indigo-500">
-                  Preferences
-                </div>
-                <h2 className="mt-1 text-[15px] font-semibold text-slate-800">偏好设置</h2>
-              </div>
-              <span className="text-[10px] text-slate-400">修改后自动保存</span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <SettingRow
-                title="开机自动启动"
-                description="登录桌面后静默进入托盘"
-                checked={settings.launchAtLogin}
-                onChange={(checked) => saveSettings({ launchAtLogin: checked })}
-              />
-              <SettingRow
-                title="深度思考"
-                description="更深入地解释，响应时间会稍长"
-                checked={settings.showThinking}
-                onChange={(checked) => saveSettings({ showThinking: checked })}
-              />
-              <SettingRow
-                title="悬浮操作条"
-                description="在主窗口选中文字时显示快捷按钮"
-                checked={settings.enableActionButton}
-                onChange={(checked) => saveSettings({ enableActionButton: checked })}
-              />
-              <div className="flex min-h-[68px] items-center justify-between gap-4 rounded-2xl border border-emerald-100 bg-emerald-50/50 px-4 py-3">
-                <div>
-                  <div className="text-[13px] font-semibold text-slate-700">托盘驻留</div>
-                  <div className="mt-1 text-[11px] text-slate-400">关闭窗口后继续响应热键</div>
-                </div>
-                <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-semibold text-emerald-700">
-                  已启用
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              <label className="rounded-2xl border border-slate-200/80 bg-slate-50/60 px-4 py-3">
-                <span className="block text-[11px] font-medium text-slate-500">翻译热键</span>
-                <input
+          {settings && (
+            <section className="settings-panel" aria-labelledby="settings-title">
+              <h2 id="settings-title">偏好设置</h2>
+              <SettingRow label="开机自启" description="登录后静默驻留系统托盘" checked={settings.launchAtLogin}
+                disabled={saving} onChange={(launchAtLogin) => saveSettings({ launchAtLogin })} />
+              <SettingRow label={online && health.provider === "codex" ? "思考摘要" : "深度思考"}
+                description={online && health.provider === "codex" ? "在结果里显示模型返回的摘要" : "请求模型返回思考过程"}
+                checked={settings.showThinking} disabled={saving} onChange={(showThinking) => saveSettings({ showThinking })} />
+              <SettingRow label="悬浮操作条" description="在可读取选区的应用中显示" checked={settings.enableActionButton}
+                disabled={saving} onChange={(enableActionButton) => saveSettings({ enableActionButton })} />
+              {notice && <p className="settings-notice" role="status">{notice}</p>}
+              <div className="hotkey-list">
+                <HotkeyField
+                  label="翻译热键"
                   value={settings.hotkeyTranslate}
-                  onChange={(event) =>
-                    updateDraft({ hotkeyTranslate: event.target.value })
-                  }
-                  onBlur={(event) =>
-                    saveSettings({ hotkeyTranslate: event.target.value })
-                  }
-                  className="mt-2 w-full bg-transparent font-mono text-[11px] text-slate-700 outline-none"
-                  placeholder="CommandOrControl+Shift+D"
+                  onCommit={(hotkeyTranslate) => void saveSettings({ hotkeyTranslate })}
                 />
-              </label>
-              <label className="rounded-2xl border border-slate-200/80 bg-slate-50/60 px-4 py-3">
-                <span className="block text-[11px] font-medium text-slate-500">解释热键</span>
-                <input
+                <HotkeyField
+                  label="解释热键"
                   value={settings.hotkeyExplain}
-                  onChange={(event) =>
-                    updateDraft({ hotkeyExplain: event.target.value })
-                  }
-                  onBlur={(event) =>
-                    saveSettings({ hotkeyExplain: event.target.value })
-                  }
-                  className="mt-2 w-full bg-transparent font-mono text-[11px] text-slate-700 outline-none"
-                  placeholder="CommandOrControl+Shift+E"
+                  onCommit={(hotkeyExplain) => void saveSettings({ hotkeyExplain })}
                 />
-              </label>
-            </div>
-          </section>
-        ) : (
-          <div className="h-36 animate-pulse rounded-[22px] bg-white/70" />
-        )}
+              </div>
+              {accessibility === false && (
+                <button
+                  type="button"
+                  className="access-button"
+                  onClick={async () => {
+                    const trusted = await window.doubaoAPI?.accessibility(true);
+                    setAccessibility(trusted ?? null);
+                  }}
+                >
+                  <ShieldIcon />
+                  授权跨应用划词权限
+                </button>
+              )}
+            </section>
+          )}
+        </aside>
+      </div>
 
-        <footer className="mt-auto flex items-center justify-between px-1 pb-1 pt-2 text-[10px] text-slate-400">
-          <span>DeepSeek v4-pro · Qwen-VL · {getBackendBase()}</span>
-          <button
-            onClick={() => window.doubaoAPI?.quit()}
-            className="rounded-lg px-2 py-1 transition hover:bg-rose-50 hover:text-rose-500"
-          >
-            彻底退出
+      <footer className="workspace-footer">
+        <span className="endpoint-chip">{getBackendBase()}</span>
+        {window.doubaoAPI && (
+          <button className="footer-quit-button" onClick={() => window.doubaoAPI?.quit()}>
+            退出助手
           </button>
-        </footer>
-      </main>
-    </div>
+        )}
+      </footer>
+    </main>
+  );
+}
+
+function TranslateIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M2.5 4.2h6.8M5.9 2.5v1.7M4.1 4.2c.4 2.4 1.6 4.2 3.5 5.4M7.7 4.2c-.5 2-1.7 3.7-3.6 4.9" />
+      <path d="m8.8 13.5 2.4-6.2 2.4 6.2M9.6 11.4h3.2" />
+    </svg>
+  );
+}
+function ExplainIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M8 2.2c.45 2.9 1.4 3.85 4.3 4.3-2.9.45-3.85 1.4-4.3 4.3-.45-2.9-1.4-3.85-4.3-4.3 2.9-.45 3.85-1.4 4.3-4.3Z" />
+      <path d="M12.2 10.2c.2 1.35.65 1.8 2 2-1.35.2-1.8.65-2 2-.2-1.35-.65-1.8-2-2 1.35-.2 1.8-.65 2-2Z" />
+    </svg>
+  );
+}
+function ChatIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M3 4.5A1.75 1.75 0 0 1 4.75 2.75h6.5A1.75 1.75 0 0 1 13 4.5v4.75A1.75 1.75 0 0 1 11.25 11H6.9l-2.65 2.25V11h-.5A1.75 1.75 0 0 1 3 9.25V4.5Z" />
+    </svg>
+  );
+}
+function ChevronDownIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="select-chevron" aria-hidden="true">
+      <path d="m4.5 6.25 3.5 3.5 3.5-3.5" />
+    </svg>
+  );
+}
+function ShieldIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden="true">
+      <path d="M8 2 3.2 4v3.8c0 3.1 2.05 5.4 4.8 6.2 2.75-.8 4.8-3.1 4.8-6.2V4L8 2Z" />
+      <path d="M8 5.5v3M8 10.75h.01" />
+    </svg>
   );
 }
 

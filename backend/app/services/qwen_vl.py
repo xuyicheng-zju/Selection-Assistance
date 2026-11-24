@@ -40,7 +40,7 @@ class QwenVLClient:
 
     @property
     def model(self) -> str:
-        return self._settings.qwen_vl_model
+        return self._settings.dashscope_vision_model
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -48,15 +48,16 @@ class QwenVLClient:
             "Content-Type": "application/json",
         }
 
-    async def chat(
+    def _payload(
         self,
         prompt: str,
         image_urls: list[str],
         *,
-        system: Optional[str] = None,
-        temperature: float = 0.3,
-        max_tokens: int = 2048,
-    ) -> VChatResult:
+        system: Optional[str],
+        temperature: float,
+        max_tokens: int,
+        stream: bool,
+    ) -> dict:
         content: list[dict] = []
         for url in image_urls:
             content.append({"type": "image_url", "image_url": {"url": url}})
@@ -71,16 +72,32 @@ class QwenVLClient:
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
-            "stream": False,
+            "stream": stream,
         }
+        if self.model.startswith("qwen3.8-"):
+            payload["enable_thinking"] = self._settings.enable_thinking if stream else False
+        return payload
+
+    async def chat(
+        self,
+        prompt: str,
+        image_urls: list[str],
+        *,
+        system: Optional[str] = None,
+        temperature: float = 0.3,
+        max_tokens: int = 2048,
+    ) -> VChatResult:
+        payload = self._payload(
+            prompt, image_urls, system=system, temperature=temperature, max_tokens=max_tokens, stream=False,
+        )
         url = f"{self._settings.dashscope_base_url}/chat/completions"
         try:
             resp = await self._client.post(url, json=payload, headers=self._headers())
         except httpx.HTTPError as exc:
-            raise QwenVLError(f"Qwen-VL 网络错误: {exc}", code="network") from exc
+            raise QwenVLError(f"{self.model} 网络错误: {exc}", code="network") from exc
         if resp.status_code >= 400:
             raise QwenVLError(
-                f"Qwen-VL 返回 {resp.status_code}: {resp.text[:300]}",
+                f"{self.model} 返回 {resp.status_code}: {resp.text[:300]}",
                 status_code=_map_status(resp.status_code),
             )
         data = resp.json()
@@ -96,22 +113,9 @@ class QwenVLClient:
         temperature: float = 0.3,
         max_tokens: int = 2048,
     ) -> AsyncIterator[VStreamChunk]:
-        content: list[dict] = []
-        for url in image_urls:
-            content.append({"type": "image_url", "image_url": {"url": url}})
-        content.append({"type": "text", "text": prompt})
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": content})
-
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "stream": True,
-        }
+        payload = self._payload(
+            prompt, image_urls, system=system, temperature=temperature, max_tokens=max_tokens, stream=True,
+        )
         url = f"{self._settings.dashscope_base_url}/chat/completions"
         try:
             async with self._client.stream(
@@ -120,7 +124,7 @@ class QwenVLClient:
                 if resp.status_code >= 400:
                     body = await resp.aread()
                     raise QwenVLError(
-                        f"Qwen-VL 返回 {resp.status_code}: {body[:300]!r}",
+                        f"{self.model} 返回 {resp.status_code}: {body[:300]!r}",
                         status_code=_map_status(resp.status_code),
                     )
                 async for line in resp.aiter_lines():
@@ -130,7 +134,7 @@ class QwenVLClient:
         except QwenVLError:
             raise
         except httpx.HTTPError as exc:
-            raise QwenVLError(f"Qwen-VL 流式网络错误: {exc}", code="network") from exc
+            raise QwenVLError(f"{self.model} 流式网络错误: {exc}", code="network") from exc
 
 
 def _map_status(status: int) -> int:

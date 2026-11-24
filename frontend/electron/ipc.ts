@@ -4,6 +4,7 @@
  */
 
 export type Action = "translate" | "explain" | "chat";
+export type ModelBackend = "dashscope" | "codex";
 
 export interface ClipboardImage {
   dataUrl: string;
@@ -16,7 +17,7 @@ export interface ClipboardImage {
 export interface TriggerPayload {
   action: Action;
   text: string;
-  context?: string;
+  selectionIssue?: "authorization" | "selection";
 }
 
 /** 选区上报（渲染进程 → 主进程） */
@@ -32,8 +33,12 @@ export const IPC = {
   ACTION_TRIGGER: "action:trigger", // 悬浮按钮点击 → 打开浮窗并执行
   POPUP_CLOSE: "popup:close",
   POPUP_READY: "popup:ready",
+  POPUP_EXPAND: "popup:expand",
+  POPUP_PIN: "popup:pin",
   SETTINGS_GET: "settings:get",
   SETTINGS_SET: "settings:set",
+  CLIPBOARD_READ_TEXT: "clipboard:read-text",
+  ACCESSIBILITY: "app:accessibility",
   CLIPBOARD_READ_IMAGE: "clipboard:read-image",
   QUIT_APP: "app:quit",
 
@@ -43,10 +48,13 @@ export const IPC = {
 
 export interface AppSettings {
   backendBase: string; // http://localhost:8000
+  modelBackend: ModelBackend;
   hotkey: string; // 兼容旧字段（= hotkeyTranslate）
   hotkeyTranslate: string; // 默认翻译热键，如 CommandOrControl+Shift+D
   hotkeyExplain: string; // 默认解释热键，如 CommandOrControl+Shift+E
   showThinking: boolean; // 是否开启 DeepSeek 思考模式（控制是否请求 reasoning）
   enableActionButton: boolean; // 鼠标选中是否弹悬浮按钮
+  codexModel?: string;
+  codexEffort?: string;
   launchAtLogin: boolean; // 登录桌面后静默启动并驻留托盘
 }

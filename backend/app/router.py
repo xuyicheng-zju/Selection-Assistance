@@ -24,9 +24,11 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from sse_starlette.sse import EventSourceResponse
 
 from .deps import (
+    get_codex,
     get_deepseek,
     get_optional_qwen_vl,
     get_qwen_vl,
+    request_model_backend,
     settings,
 )
 from .router_engine import images_to_data_urls, route
@@ -49,6 +51,7 @@ from .services import chat as chat_svc
 from .services import explain as explain_svc
 from .services import translate as translate_svc
 from .services import vision as vision_svc
+from .services.codex import CodexClient, CodexError
 from .services.deepseek import DeepSeekClient, DeepSeekError
 from .services.phonetics import classify, needs_phonetics
 from .services.qwen_vl import QwenVLClient, QwenVLError
@@ -104,7 +107,7 @@ def _err(code: str, message: str, status: int) -> HTTPException:
     return HTTPException(status_code=status, detail={"code": code, "message": message})
 
 
-def _safe_route_qwen(decision_backend: str, qwen_vl: Optional[QwenVLClient]) -> QwenVLClient:
+def _safe_route_qwen(decision_backend: str, qwen_vl: Optional[QwenVLClient | CodexClient]) -> QwenVLClient | CodexClient:
     if decision_backend == "qwen_vl":
         if qwen_vl is None:
             raise _err("multimodal_unavailable", "未配置 DASHSCOPE_API_KEY，多模态不可用", 503)
@@ -116,8 +119,25 @@ def _safe_route_qwen(decision_backend: str, qwen_vl: Optional[QwenVLClient]) -> 
 # 健康检查
 # ---------------------------------------------------------------------------
 @router.get("/health")
-async def health() -> dict:
-    return {"ok": True}
+async def health(request: Request) -> dict:
+    cfg = settings()
+    if request_model_backend(request) == "codex":
+        return {"ok": True, "provider": "codex", "model": cfg.codex_model, "effort": cfg.codex_reasoning_effort}
+    status = {"ok": True, "provider": "dashscope", "model": cfg.dashscope_text_model}
+    if cfg.dashscope_vision_model != cfg.dashscope_text_model:
+        status["vision_model"] = cfg.dashscope_vision_model
+    return status
+
+
+@router.get("/models")
+async def models(request: Request) -> dict:
+    codex = get_codex() if request_model_backend(request) == "codex" else None
+    if codex is None:
+        return {"models": []}
+    try:
+        return {"models": await codex.models()}
+    except CodexError as exc:
+        raise _err(exc.code, str(exc), exc.status_code) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -155,8 +175,8 @@ async def translate(
     source_lang: str = Form(default="auto"),
     target_lang: str = Form(default=None),
     images: list[UploadFile] = File(default_factory=list),
-    deepseek: DeepSeekClient = Depends(get_deepseek),
-    qwen_vl: Optional[QwenVLClient] = Depends(get_optional_qwen_vl),
+    deepseek: DeepSeekClient | CodexClient = Depends(get_deepseek),
+    qwen_vl: Optional[QwenVLClient | CodexClient] = Depends(get_optional_qwen_vl),
 ) -> TranslateResponse:
     cfg = settings()
     tgt = target_lang or cfg.default_target_lang
@@ -180,9 +200,7 @@ async def translate(
                 deepseek=deepseek,
                 enable_thinking=_thinking_from_request(request),
             )
-    except DeepSeekError as e:
-        raise _err(e.code, str(e), e.status_code) from e
-    except QwenVLError as e:
+    except (DeepSeekError, QwenVLError, CodexError) as e:
         raise _err(e.code, str(e), e.status_code) from e
 
     return TranslateResponse(
@@ -200,7 +218,7 @@ async def translate_vision(
     text: Optional[str] = Form(default=None),
     target_lang: str = Form(default=None),
     images: list[UploadFile] = File(default_factory=list),
-    qwen_vl: QwenVLClient = Depends(get_qwen_vl),
+    qwen_vl: QwenVLClient | CodexClient = Depends(get_qwen_vl),
 ) -> VisionResponse:
     cfg = settings()
     image_urls, _ = await _collect_images(images)
@@ -211,7 +229,7 @@ async def translate_vision(
             text=text, target_lang=target_lang or cfg.default_target_lang,
             image_urls=image_urls, qwen_vl=qwen_vl,
         )
-    except QwenVLError as e:
+    except (QwenVLError, CodexError) as e:
         raise _err(e.code, str(e), e.status_code) from e
     return VisionResponse(answer=out.translation, model=out.model)
 
@@ -230,8 +248,8 @@ async def explain(
     context: Optional[str] = Form(default=None),
     style: str = Form(default="concise"),
     images: list[UploadFile] = File(default_factory=list),
-    deepseek: DeepSeekClient = Depends(get_deepseek),
-    qwen_vl: Optional[QwenVLClient] = Depends(get_optional_qwen_vl),
+    deepseek: DeepSeekClient | CodexClient = Depends(get_deepseek),
+    qwen_vl: Optional[QwenVLClient | CodexClient] = Depends(get_optional_qwen_vl),
 ) -> ExplainResponse:
     cfg = settings()
     image_urls, _ = await _collect_images(images)
@@ -251,9 +269,7 @@ async def explain(
                 settings=cfg, deepseek=deepseek,
                 enable_thinking=_thinking_from_request(request),
             )
-    except DeepSeekError as e:
-        raise _err(e.code, str(e), e.status_code) from e
-    except QwenVLError as e:
+    except (DeepSeekError, QwenVLError, CodexError) as e:
         raise _err(e.code, str(e), e.status_code) from e
 
     return ExplainResponse(
@@ -270,7 +286,7 @@ async def explain_vision(
     text: Optional[str] = Form(default=None),
     context: Optional[str] = Form(default=None),
     images: list[UploadFile] = File(default_factory=list),
-    qwen_vl: QwenVLClient = Depends(get_qwen_vl),
+    qwen_vl: QwenVLClient | CodexClient = Depends(get_qwen_vl),
 ) -> VisionResponse:
     image_urls, _ = await _collect_images(images)
     if not image_urls:
@@ -279,7 +295,7 @@ async def explain_vision(
         out = await explain_svc.explain_image(
             text=text, context=context, image_urls=image_urls, qwen_vl=qwen_vl
         )
-    except QwenVLError as e:
+    except (QwenVLError, CodexError) as e:
         raise _err(e.code, str(e), e.status_code) from e
     return VisionResponse(answer=out.explanation, model=out.model)
 
@@ -290,14 +306,14 @@ async def explain_vision(
 @router.post("/ocr", response_model=OcrResponse)
 async def ocr_endpoint(
     images: list[UploadFile] = File(default_factory=list),
-    qwen_vl: QwenVLClient = Depends(get_qwen_vl),
+    qwen_vl: QwenVLClient | CodexClient = Depends(get_qwen_vl),
 ) -> OcrResponse:
     image_urls, _ = await _collect_images(images)
     if not image_urls:
         raise _err("bad_request", "至少提供一张图片", 400)
     try:
         result = await vision_svc.ocr(qwen_vl, image_urls)
-    except QwenVLError as e:
+    except (QwenVLError, CodexError) as e:
         raise _err(e.code, str(e), e.status_code) from e
     return OcrResponse(texts=result.texts, full_text=result.full_text, model=result.model)
 
@@ -313,7 +329,7 @@ async def ocr_endpoint(
 async def chat_endpoint(
     request: Request,
     req: ChatRequest,
-    deepseek: DeepSeekClient = Depends(get_deepseek),
+    deepseek: DeepSeekClient | CodexClient = Depends(get_deepseek),
 ) -> ChatResponse:
     """基于选中文本的多轮追问。前端维护 history，每次发完整历史。"""
     if not req.question.strip():
@@ -327,7 +343,7 @@ async def chat_endpoint(
             deepseek=deepseek,
             enable_thinking=_thinking_from_request(request),
         )
-    except DeepSeekError as e:
+    except (DeepSeekError, CodexError) as e:
         raise _err(e.code, str(e), e.status_code) from e
     return ChatResponse(answer=out.answer, model=out.model, reasoning=out.reasoning)
 
@@ -335,15 +351,14 @@ async def chat_endpoint(
 @router.post("/chat/stream")
 async def chat_stream(
     request: Request,
-    deepseek: DeepSeekClient = Depends(get_deepseek),
-    qwen_vl: Optional[QwenVLClient] = Depends(get_optional_qwen_vl),
+    deepseek: DeepSeekClient | CodexClient = Depends(get_deepseek),
+    qwen_vl: Optional[QwenVLClient | CodexClient] = Depends(get_optional_qwen_vl),
 ):
     """多轮 Chat SSE。
 
     兼容原 JSON 请求；multipart 请求可额外携带多个 images 字段。
     有图片自动走 Qwen-VL，无图继续走 DeepSeek。
     """
-    cfg = settings()
     enable_thinking = _thinking_from_request(request)
     content_type = request.headers.get("content-type", "")
     image_urls: list[str] = []
@@ -393,7 +408,7 @@ async def chat_stream(
                     model = model or chunk.model
                     if chunk.content:
                         yield _sse("delta", {"delta": chunk.content})
-                yield _sse("done", {"model": model or cfg.qwen_vl_model})
+                yield _sse("done", {"model": model or qv.model})
             else:
                 async for chunk in chat_svc.stream_chat(
                     selected_text=req.selected_text,
@@ -408,10 +423,8 @@ async def chat_stream(
                         yield _sse("thinking", {"delta": chunk.reasoning})
                     if chunk.content:
                         yield _sse("delta", {"delta": chunk.content})
-                yield _sse("done", {"model": model or cfg.deepseek_model})
-        except DeepSeekError as e:
-            yield _sse("error", {"code": e.code, "message": str(e)})
-        except QwenVLError as e:
+                yield _sse("done", {"model": model or deepseek.model})
+        except (DeepSeekError, QwenVLError, CodexError) as e:
             yield _sse("error", {"code": e.code, "message": str(e)})
         except Exception as e:  # noqa: BLE001
             logger.exception("chat/stream error")
@@ -434,8 +447,8 @@ async def translate_stream(
     source_lang: str = Form(default="auto"),
     target_lang: str = Form(default=None),
     images: list[UploadFile] = File(default_factory=list),
-    deepseek: DeepSeekClient = Depends(get_deepseek),
-    qwen_vl: Optional[QwenVLClient] = Depends(get_optional_qwen_vl),
+    deepseek: DeepSeekClient | CodexClient = Depends(get_deepseek),
+    qwen_vl: Optional[QwenVLClient | CodexClient] = Depends(get_optional_qwen_vl),
 ):
     cfg = settings()
     tgt = target_lang or cfg.default_target_lang
@@ -454,7 +467,7 @@ async def translate_stream(
                 ):
                     model = model or chunk.model
                     yield _sse("delta", {"delta": chunk.content})
-                yield _sse("done", {"model": model or cfg.qwen_vl_model, "detected_lang": None})
+                yield _sse("done", {"model": model or qv.model, "detected_lang": None})
             else:
                 if not text or not text.strip():
                     yield _sse("error", {"code": "bad_request", "message": "text 和 images 至少提供一个"})
@@ -472,10 +485,8 @@ async def translate_stream(
                         yield _sse("thinking", {"delta": chunk.reasoning})
                     if chunk.content:
                         yield _sse("delta", {"delta": chunk.content})
-                yield _sse("done", {"model": model or cfg.deepseek_model, "detected_lang": None})
-        except DeepSeekError as e:
-            yield _sse("error", {"code": e.code, "message": str(e)})
-        except QwenVLError as e:
+                yield _sse("done", {"model": model or deepseek.model, "detected_lang": None})
+        except (DeepSeekError, QwenVLError, CodexError) as e:
             yield _sse("error", {"code": e.code, "message": str(e)})
         except HTTPException as e:
             detail = e.detail if isinstance(e.detail, dict) else {"message": str(e.detail)}
@@ -494,8 +505,8 @@ async def explain_stream(
     context: Optional[str] = Form(default=None),
     style: str = Form(default="concise"),
     images: list[UploadFile] = File(default_factory=list),
-    deepseek: DeepSeekClient = Depends(get_deepseek),
-    qwen_vl: Optional[QwenVLClient] = Depends(get_optional_qwen_vl),
+    deepseek: DeepSeekClient | CodexClient = Depends(get_deepseek),
+    qwen_vl: Optional[QwenVLClient | CodexClient] = Depends(get_optional_qwen_vl),
 ):
     cfg = settings()
     image_urls, _ = await _collect_images(images)
@@ -513,7 +524,7 @@ async def explain_stream(
                 ):
                     model = model or chunk.model
                     yield _sse("delta", {"delta": chunk.content})
-                yield _sse("done", {"model": model or cfg.qwen_vl_model, "detected_lang": None})
+                yield _sse("done", {"model": model or qv.model, "detected_lang": None})
             else:
                 if not text or not text.strip():
                     yield _sse("error", {"code": "bad_request", "message": "text 和 images 至少提供一个"})
@@ -531,10 +542,8 @@ async def explain_stream(
                         yield _sse("thinking", {"delta": chunk.reasoning})
                     if chunk.content:
                         yield _sse("delta", {"delta": chunk.content})
-                yield _sse("done", {"model": model or cfg.deepseek_model, "detected_lang": None})
-        except DeepSeekError as e:
-            yield _sse("error", {"code": e.code, "message": str(e)})
-        except QwenVLError as e:
+                yield _sse("done", {"model": model or deepseek.model, "detected_lang": None})
+        except (DeepSeekError, QwenVLError, CodexError) as e:
             yield _sse("error", {"code": e.code, "message": str(e)})
         except HTTPException as e:
             detail = e.detail if isinstance(e.detail, dict) else {"message": str(e.detail)}

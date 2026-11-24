@@ -8,32 +8,29 @@ interface Window {
 
 // 与 electron/preload.ts 暴露的 doubaoAPI 对齐
 type Action = "translate" | "explain" | "chat";
-type TriggerPayload = { action: Action; text: string; context?: string };
+type TriggerPayload = { action: Action; text: string; selectionIssue?: "authorization" | "selection" };
 type ClipboardImage = {
   dataUrl: string;
   mimeType: "image/png";
   width: number;
   height: number;
 };
-type AppSettings = {
-  backendBase: string;
-  hotkey: string;
-  hotkeyTranslate: string;
-  hotkeyExplain: string;
-  showThinking: boolean;
-  enableActionButton: boolean;
-  launchAtLogin: boolean;
-};
+type AppSettings = import("../electron/ipc").AppSettings;
 
 interface DoubaoAPI {
   onTriggerAction(cb: (payload: TriggerPayload) => void): () => void;
   closeWindow(): void;
+  setPopupExpanded(expanded: boolean): void;
+  setPopupPinned(pinned: boolean): void;
   triggerAction(action: Action): void;
   reportSelection(text: string, x: number, y: number): void;
   quit(): void;
   getSettings(): Promise<AppSettings>;
   setSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
   readClipboardImage(): Promise<ClipboardImage | null>;
+  readClipboardText(): Promise<string>;
+  accessibility(prompt?: boolean): Promise<boolean | null>;
+  getBackendHeaders(): Record<string, string>;
   getBackendBase(): string;
 }
 

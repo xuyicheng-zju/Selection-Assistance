@@ -13,6 +13,20 @@
 
 ---
 
+## Codex app-server
+
+在后端目录的 `.env` 中加入：
+
+```dotenv
+MODEL_BACKEND=codex
+CODEX_MODEL=gpt-6.1-terra
+CODEX_REASONING_EFFORT=low
+```
+
+后端通过已登录的 `codex app-server --listen stdio://` 发起本地 JSON-RPC 请求，翻译、解释、聊天与 OCR 共用所选模型。可用 `CODEX_APP_SERVER_BIN` 指定 CLI 绝对路径。默认推理强度由 `CODEX_REASONING_EFFORT` 控制，桌面模型选择器可按请求覆盖模型和强度。
+
+`GET /api/models` 读取当前账号可用模型及其推理强度。请求可通过 `X-Codex-Model` 和 `X-Codex-Effort` 覆盖默认值，省略两者时用 `.env` 默认值。源码部署也可用 `MODEL_BACKEND=dashscope` 使用百炼。
+
 ## 快速开始
 
 ```bash
@@ -131,10 +145,12 @@ curl -X POST http://127.0.0.1:8000/api/selection \
 |------|--------|------|
 | `DASHSCOPE_API_KEY` | （必填） | 百炼 Key，DeepSeek + Qwen-VL 共用 |
 | `DASHSCOPE_BASE_URL` | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 百炼 OpenAI 兼容端点 |
+| `DASHSCOPE_MODEL` | （可选） | 文本和图像共用一个多模态模型，例如 `qwen3.8-flash`。同时覆盖下面两项模型配置。 |
 | `DEEPSEEK_MODEL` | `deepseek-v4-pro` | 纯文本模型 |
-| `ENABLE_THINKING` | `true` | DeepSeek 思考模式（reasoning_content） |
+| `ENABLE_THINKING` | `false` | 百炼流式请求的默认思考开关 |
 | `QWEN_VL_MODEL` | `qwen-vl-max` | 多模态模型 |
 | `DEFAULT_TARGET_LANG` | `zh` | 默认目标语言 |
+| `LOCAL_PHONETICS_ONLY` | `false` | 仅使用本地音标和拼音 |
 | `CORS_ORIGINS` | `http://localhost:5173,...` | 允许的前端来源 |
 
 ---

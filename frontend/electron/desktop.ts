@@ -11,10 +11,12 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import { isMacLaunchAtLoginEnabled, setMacLaunchAtLogin } from "./macos";
 import type { AppSettings } from "./ipc";
 
 const AUTOSTART_FILE = "selection-assistance.desktop";
@@ -23,6 +25,7 @@ const MANAGED_MARKER = "X-Selection-Assistance-Managed=true";
 
 export const DEFAULT_SETTINGS: AppSettings = {
   backendBase: "http://localhost:8000",
+  modelBackend: "dashscope",
   hotkey: "CommandOrControl+Shift+D",
   hotkeyTranslate: "CommandOrControl+Shift+D",
   hotkeyExplain: "CommandOrControl+Shift+E",
@@ -52,6 +55,20 @@ export function resolveAppIconPath(): string {
 }
 
 export function getTrayIcon() {
+  if (process.platform === "darwin") {
+    const candidates = [
+      path.join(app.getAppPath(), "assets", "selectionTemplate.png"),
+      path.join(app.getAppPath(), "assets", "selectionTemplate@2x.png"),
+    ];
+    for (const candidate of candidates) {
+      if (!existsSync(candidate)) continue;
+      const template = nativeImage.createFromPath(candidate);
+      if (!template.isEmpty()) {
+        template.setTemplateImage(true);
+        return template;
+      }
+    }
+  }
   const image = nativeImage.createFromPath(resolveAppIconPath());
   return image.isEmpty() ? nativeImage.createEmpty() : image.resize({ width: 22, height: 22 });
 }
@@ -126,6 +143,7 @@ function renderAutostartEntry(): string {
 }
 
 export function isLaunchAtLoginEnabled(): boolean {
+  if (process.platform === "darwin") return isMacLaunchAtLoginEnabled();
   const autostartPath = getAutostartPath();
   if (!existsSync(autostartPath)) return false;
   try {
@@ -136,6 +154,7 @@ export function isLaunchAtLoginEnabled(): boolean {
 }
 
 export function setLaunchAtLogin(enabled: boolean): boolean {
+  if (process.platform === "darwin") return setMacLaunchAtLogin(enabled);
   const autostartPath = getAutostartPath();
   if (!enabled) {
     if (existsSync(autostartPath)) {
@@ -166,6 +185,9 @@ export function loadSettings(): AppSettings {
 
   const merged = { ...DEFAULT_SETTINGS, ...saved };
   merged.backendBase = DEFAULT_SETTINGS.backendBase;
+  if (merged.modelBackend !== "dashscope" && merged.modelBackend !== "codex") {
+    merged.modelBackend = DEFAULT_SETTINGS.modelBackend;
+  }
   merged.hotkey = merged.hotkeyTranslate;
   // 文件是否真实存在是开机启动状态的唯一事实来源。
   merged.launchAtLogin = isLaunchAtLoginEnabled();
@@ -175,17 +197,22 @@ export function loadSettings(): AppSettings {
 export function saveSettings(settings: AppSettings): void {
   const settingsPath = getSettingsPath();
   const persisted = {
+    modelBackend: settings.modelBackend,
     hotkey: settings.hotkeyTranslate,
     hotkeyTranslate: settings.hotkeyTranslate,
     hotkeyExplain: settings.hotkeyExplain,
     showThinking: settings.showThinking,
     enableActionButton: settings.enableActionButton,
     launchAtLogin: settings.launchAtLogin,
+    codexModel: settings.codexModel,
+    codexEffort: settings.codexEffort,
   };
   mkdirSync(path.dirname(settingsPath), { recursive: true });
-  writeFileSync(settingsPath, `${JSON.stringify(persisted, null, 2)}\n`, {
+  const temporaryPath = `${settingsPath}.tmp`;
+  writeFileSync(temporaryPath, `${JSON.stringify(persisted, null, 2)}\n`, {
     encoding: "utf8",
     mode: 0o600,
   });
-  chmodSync(settingsPath, 0o600);
+  chmodSync(temporaryPath, 0o600);
+  renameSync(temporaryPath, settingsPath);
 }

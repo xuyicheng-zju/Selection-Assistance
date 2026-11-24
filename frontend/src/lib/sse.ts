@@ -103,7 +103,10 @@ export async function streamRequest(
   handlers: SseHandlers,
   opts: { signal?: AbortSignal; headers?: Record<string, string> } = {}
 ): Promise<void> {
-  const headers: Record<string, string> = { ...(opts.headers ?? {}) };
+  const headers: Record<string, string> = {
+    ...(typeof window === "undefined" ? {} : window.doubaoAPI?.getBackendHeaders?.()),
+    ...opts.headers,
+  };
   if (typeof body === "string") {
     headers["Content-Type"] = "application/json";
   }
@@ -146,6 +149,12 @@ export async function streamRequest(
   const reader = resp.body.getReader();
   const decoder = new TextDecoder("utf-8");
   let buffer = "";
+  let ended = false;
+  const dispatch = (event: ParsedEvent) => {
+    if (ended) return;
+    ended = event.event === "done" || event.event === "error";
+    dispatchEvent(event, handlers);
+  };
 
   try {
     for (;;) {
@@ -154,17 +163,22 @@ export async function streamRequest(
       buffer += decoder.decode(value, { stream: true });
       const { events, rest } = parseSseChunk(buffer);
       buffer = rest;
-      for (const ev of events) dispatchEvent(ev, handlers);
+      for (const ev of events) dispatch(ev);
     }
     // flush 残留
     buffer += decoder.decode();
     if (buffer.trim()) {
       const { events } = parseSseChunk(buffer + "\n\n");
-      for (const ev of events) dispatchEvent(ev, handlers);
+      for (const ev of events) dispatch(ev);
+    }
+    if (!ended && !opts.signal?.aborted) {
+      handlers.onError?.({ code: "stream", message: "连接已中断，请重试。" });
     }
   } catch (e) {
-    if ((e as Error).name === "AbortError") return;
+    if (ended || (e as Error).name === "AbortError") return;
     const msg = e instanceof Error ? e.message : String(e);
     handlers.onError?.({ code: "stream", message: `流式中断: ${msg}` });
+  } finally {
+    reader.releaseLock();
   }
 }

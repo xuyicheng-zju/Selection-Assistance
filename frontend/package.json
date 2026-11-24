@@ -14,13 +14,15 @@
     "test": "vitest run",
     "install:linux": "npm run build && bash scripts/install-linux-app.sh --enable-autostart",
     "pack": "npm run build && electron-builder --dir",
-    "dist": "npm run build && electron-builder"
+    "dist": "npm run build && electron-builder",
+    "install:mac": "npm run build && bash scripts/install-macos-app.sh"
   },
   "dependencies": {
     "dompurify": "^3.1.6",
     "katex": "^0.17.0",
     "marked": "^14.1.2",
-    "marked-katex-extension": "^5.1.10"
+    "marked-katex-extension": "^5.1.10",
+    "tree-kill": "^1.2.2"
   },
   "devDependencies": {
     "@types/dompurify": "^3.0.5",
@@ -38,10 +40,27 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwindcss": "^3.4.12",
-    "tree-kill": "^1.2.2",
     "typescript": "^5.5.4",
     "vite": "^5.4.6",
     "vitest": "^2.1.1",
     "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.xuyicheng.selection-assistance",
+    "productName": "Selection Assistance",
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "assets/*.png"
+    ],
+    "mac": {
+      "category": "public.app-category.productivity",
+      "extraResources": [
+        {
+          "from": "build/read-selection",
+          "to": "read-selection"
+        }
+      ]
+    }
   }
 }

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import httpx
 import pytest
 
+from app.config import get_settings
+from app.main import create_app
 from app.router_engine import route, images_to_data_urls, select_clients
 from app.services.deepseek import DeepSeekError
 from app.services.qwen_vl import QwenVLClient
@@ -59,3 +62,23 @@ def test_select_clients_deepseek_for_text(deepseek, qwen_vl):
     selected = select_clients(decision, deepseek, qwen_vl)
     # 纯文本走 DeepSeek
     assert selected is deepseek
+
+
+@pytest.mark.asyncio
+async def test_desktop_provider_selection_is_authenticated_and_request_scoped(monkeypatch):
+    monkeypatch.setenv("MODEL_BACKEND", "dashscope")
+    monkeypatch.setenv("DASHSCOPE_MODEL", "qwen3.8-flash")
+    monkeypatch.setenv("SELECTION_LOCAL_TOKEN", "local-test-token")
+    get_settings.cache_clear()
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=create_app()), base_url="http://localhost"
+        ) as client:
+            codex = {"X-Model-Backend": "codex"}
+            assert (await client.get("/api/health", headers=codex)).status_code == 403
+
+            codex["X-Selection-Token"] = "local-test-token"
+            assert (await client.get("/api/health", headers=codex)).json()["provider"] == "codex"
+            assert (await client.get("/api/health")).json()["model"] == "qwen3.8-flash"
+    finally:
+        get_settings.cache_clear()

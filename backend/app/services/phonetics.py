@@ -18,6 +18,7 @@ from pypinyin import lazy_pinyin, Style
 
 from ..config import Settings
 from ..schemas import Phonetics
+from .codex import CodexClient
 from .deepseek import DeepSeekClient
 from .. import prompts
 
@@ -141,7 +142,7 @@ def _pinyin(text: str) -> Optional[Phonetics]:
     return None
 
 
-async def _from_llm(deepseek: Optional[DeepSeekClient], text: str) -> Optional[Phonetics]:
+async def _from_llm(deepseek: Optional[DeepSeekClient | CodexClient], text: str) -> Optional[Phonetics]:
     """LLM 兜底（生僻词/专有名词）。"""
     if deepseek is None:
         return None
@@ -173,7 +174,7 @@ async def get_phonetics(
     text: str,
     *,
     settings: Settings,
-    deepseek: Optional[DeepSeekClient] = None,
+    deepseek: Optional[DeepSeekClient | CodexClient] = None,
 ) -> Phonetics:
     """获取音标。不需要时返回空 Phonetics；并发各源取最先成功。"""
     if not text or not text.strip():
@@ -182,16 +183,22 @@ async def get_phonetics(
         return Phonetics()
 
     kind = classify(text)
+    local_only = isinstance(deepseek, CodexClient) or settings.local_phonetics_only
 
     if kind == "chinese":
         # 拼音本地即可，再叠加 LLM 兜底
         local = _pinyin(text)
-        llm = await _from_llm(deepseek, text)
-        return Phonetics(
-            pinyin=(local.pinyin if local else None) or (llm.pinyin if llm else None),
-        )
+        if local_only:
+            return local or Phonetics()
+        return local or await _from_llm(deepseek, text) or Phonetics()
 
     # kind == word（英文单词）
+    if local_only:
+        local = await asyncio.to_thread(_from_local_en, text)
+        if local and local.ipa and "*" not in local.ipa:
+            return local
+        return Phonetics()
+
     api_task = _from_free_dictionary(text)
     local_task = asyncio.to_thread(_from_local_en, text)
     api, local = await asyncio.gather(api_task, local_task)

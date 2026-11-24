@@ -45,7 +45,7 @@ class DeepSeekClient:
 
     @property
     def model(self) -> str:
-        return self._settings.deepseek_model
+        return self._settings.dashscope_text_model
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -123,10 +123,10 @@ class DeepSeekClient:
         try:
             resp = await self._client.post(url, json=payload, headers=self._headers())
         except httpx.HTTPError as exc:
-            raise DeepSeekError(f"DeepSeek 网络错误: {exc}", code="network") from exc
+            raise DeepSeekError(f"{self.model} 网络错误: {exc}", code="network") from exc
         if resp.status_code >= 400:
             raise DeepSeekError(
-                f"DeepSeek 返回 {resp.status_code}: {resp.text[:300]}",
+                f"{self.model} 返回 {resp.status_code}: {resp.text[:300]}",
                 status_code=_map_status(resp.status_code),
             )
         data = resp.json()
@@ -166,7 +166,7 @@ class DeepSeekClient:
                 if resp.status_code >= 400:
                     body = await resp.aread()
                     raise DeepSeekError(
-                        f"DeepSeek 返回 {resp.status_code}: {body[:300]!r}",
+                        f"{self.model} 返回 {resp.status_code}: {body[:300]!r}",
                         status_code=_map_status(resp.status_code),
                     )
                 async for line in resp.aiter_lines():
@@ -176,7 +176,7 @@ class DeepSeekClient:
         except DeepSeekError:
             raise
         except httpx.HTTPError as exc:
-            raise DeepSeekError(f"DeepSeek 流式网络错误: {exc}", code="network") from exc
+            raise DeepSeekError(f"{self.model} 流式网络错误: {exc}", code="network") from exc
 
     # ------------------------------------------------------------------
     # 多轮对话（messages 数组）—— 供 /api/chat 追问使用
@@ -201,10 +201,10 @@ class DeepSeekClient:
         try:
             resp = await self._client.post(url, json=payload, headers=self._headers())
         except httpx.HTTPError as exc:
-            raise DeepSeekError(f"DeepSeek 网络错误: {exc}", code="network") from exc
+            raise DeepSeekError(f"{self.model} 网络错误: {exc}", code="network") from exc
         if resp.status_code >= 400:
             raise DeepSeekError(
-                f"DeepSeek 返回 {resp.status_code}: {resp.text[:300]}",
+                f"{self.model} 返回 {resp.status_code}: {resp.text[:300]}",
                 status_code=_map_status(resp.status_code),
             )
         data = resp.json()
@@ -239,7 +239,7 @@ class DeepSeekClient:
                 if resp.status_code >= 400:
                     body = await resp.aread()
                     raise DeepSeekError(
-                        f"DeepSeek 返回 {resp.status_code}: {body[:300]!r}",
+                        f"{self.model} 返回 {resp.status_code}: {body[:300]!r}",
                         status_code=_map_status(resp.status_code),
                     )
                 async for line in resp.aiter_lines():
@@ -249,7 +249,7 @@ class DeepSeekClient:
         except DeepSeekError:
             raise
         except httpx.HTTPError as exc:
-            raise DeepSeekError(f"DeepSeek 流式网络错误: {exc}", code="network") from exc
+            raise DeepSeekError(f"{self.model} 流式网络错误: {exc}", code="network") from exc
 
 
 def _map_status(status: int) -> int:

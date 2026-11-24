@@ -11,17 +11,28 @@ import {
   TriggerPayload,
   AppSettings,
   ClipboardImage,
+  ModelBackend,
 } from "./ipc";
 
 // 后端地址默认值；主进程会在 SETTINGS_GET 里返回真实地址（可能因端口占用而变化）。
-const BACKEND_BASE_DEFAULT = "http://localhost:8000";
+const BACKEND_BASE_DEFAULT = "http://127.0.0.1:8000";
+type BackendConnection = { base: string; token: string; modelBackend: ModelBackend; model?: string; effort?: string } | undefined;
+const connection = (): BackendConnection => ipcRenderer.sendSync("backend:get-base");
+const base = connection()?.base ?? BACKEND_BASE_DEFAULT;
 
 /** 浮窗 / 悬浮按钮 用的 API */
 const popupApi = {
   onTriggerAction(cb: (payload: TriggerPayload) => void): () => void {
     const handler = (_e: IpcRendererEvent, payload: TriggerPayload) => cb(payload);
     ipcRenderer.on(IPC.ACTION_RUN, handler);
+    ipcRenderer.send(IPC.POPUP_READY);
     return () => ipcRenderer.removeListener(IPC.ACTION_RUN, handler);
+  },
+  setPopupExpanded(expanded: boolean): void {
+    ipcRenderer.send(IPC.POPUP_EXPAND, expanded);
+  },
+  setPopupPinned(pinned: boolean): void {
+    ipcRenderer.send(IPC.POPUP_PIN, pinned);
   },
   closeWindow(): void {
     ipcRenderer.send(IPC.POPUP_CLOSE);
@@ -46,16 +57,27 @@ const popupApi = {
   readClipboardImage(): Promise<ClipboardImage | null> {
     return ipcRenderer.invoke(IPC.CLIPBOARD_READ_IMAGE);
   },
-  /** 同步拿后端地址（从主进程 settings.backendBase） */
-  getBackendBase(): string {
-    // ipcRenderer.sendSync 同步获取；若失败回退默认值
-    try {
-      const base = ipcRenderer.sendSync("backend:get-base");
-      if (typeof base === "string" && base) return base;
-    } catch {
-      /* ignore */
+  readClipboardText(): Promise<string> {
+    return ipcRenderer.invoke(IPC.CLIPBOARD_READ_TEXT);
+  },
+  accessibility(prompt = false): Promise<boolean | null> {
+    return ipcRenderer.invoke(IPC.ACCESSIBILITY, prompt);
+  },
+  getBackendHeaders(): Record<string, string> {
+    const backend = connection();
+    const headers: Record<string, string> = {};
+    if (backend?.token) {
+      headers["X-Selection-Token"] = backend.token;
+      headers["X-Model-Backend"] = backend.modelBackend;
     }
-    return BACKEND_BASE_DEFAULT;
+    if (backend && (!backend.token || backend.modelBackend === "codex")) {
+      if (backend.model) headers["X-Codex-Model"] = backend.model;
+      if (backend.effort) headers["X-Codex-Effort"] = backend.effort;
+    }
+    return headers;
+  },
+  getBackendBase(): string {
+    return base;
   },
 };
 

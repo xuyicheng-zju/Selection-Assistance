@@ -8,6 +8,20 @@
 
 ---
 
+## macOS 本地安装
+
+准备 Node.js、`uv`、Xcode Command Line Tools，以及已通过 `codex login` 登录、支持 app-server 的 Codex CLI（已验证 0.171.0）。
+
+```bash
+cd frontend
+npm ci
+npm run install:mac
+```
+
+安装程序会打开 Selection Assistance，启用登录后静默启动。偏好设置里的「开机自启」可随时关闭。启用跨应用取词后，在能向 macOS 提供选区的应用里拖选文字，会出现翻译、解释和聊天操作条。支持不齐全的应用可继续用 `⌘⇧D` 翻译、`⌘⇧E` 解释。快捷键会在光标旁打开可缩放的小窗。浮窗也可用剪贴板里的文字发起处理。重新安装本地打包版本后，如 macOS 提示授权失效，请在「隐私与安全性 → 辅助功能」中重新添加 Selection Assistance。
+
+桌面版默认使用 **Codex app-server · gpt-6.1-terra · low**。主窗可切换账号可用的模型和推理强度，新请求会采用已保存的选择。[后端配置](backend/README.md#codex-app-server)
+
 ## 💡 为什么做这个（Motivation）
 
 如果你从 Windows/Mac 切到 Linux，会发现一个扎心的现实：**Linux 上几乎没有一款好用的划词翻译工具。**
@@ -91,7 +105,7 @@
 |------|--------|------|
 | **Linux (X11)** | ✅ 完全支持 | 主要目标平台。自动复制选区需 `xdotool` |
 | Linux (Wayland) | ⚠️ 有限支持 | `xdotool` 通常无法读取原生 Wayland 应用选区；XWayland 应用视桌面环境而定 |
-| macOS | ⚠️ 未测试 | Electron 跨平台，热键改 `Cmd` 前缀理论上可用 |
+| macOS | ✅ 已验证 | 支持菜单栏、登录自启和 `⌘` 热键，跨应用取词需要「辅助功能」授权 |
 | Windows | ⚠️ 未测试 | 需把 `xdotool` 替换为 PowerShell 模拟按键 |
 
 > **推荐环境**：Ubuntu / Debian 系 + X11 桌面（GNOME / KDE / XFCE 均可）。

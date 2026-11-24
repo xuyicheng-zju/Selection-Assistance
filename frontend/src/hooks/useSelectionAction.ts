@@ -26,13 +26,13 @@ export interface UseSelectionAction {
   initialAction: Action | null;
   thinkingEnabled: boolean; // 思考模式开关（供 UI 显示）
   // 执行初始动作
-  runInitial: (action: Action, text: string, images?: File[]) => Promise<void>;
+  runInitial: (action: Action, text: string, images?: File[], targetLang?: string) => Promise<void>;
   // 追问
   ask: (question: string, images?: File[]) => Promise<void>;
   // 切换思考模式（同步持久化到设置）
   toggleThinking: () => void;
   // 中断
-  abort: () => void;
+  stop: () => void;
   reset: () => void;
 }
 
@@ -47,34 +47,101 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
   // 是否开启 DeepSeek 思考模式（从主进程设置读，默认 false）
   const [thinkingEnabled, setThinkingEnabled] = useState(false);
 
-  // SSE 可能以远高于屏幕刷新率的频率吐 token。先写入 ref，再按约 30fps
-  // 合并刷新 React，避免每个 token 都触发整棵消息树与 Markdown 重排。
   const contentRef = useRef("");
   const thinkingRef = useRef("");
-  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shownRef = useRef("");
+  const pendingRef = useRef<string[]>([]);
+  const flushFrameRef = useRef<number | null>(null);
+  const frameTimeRef = useRef<number | null>(null);
+  const characterCreditRef = useRef(0);
+  const finishRef = useRef<(() => void) | null>(null);
+  const finalRateRef = useRef(0);
   const requestIdRef = useRef(0);
 
   const cancelScheduledFlush = useCallback(() => {
-    if (flushTimerRef.current !== null) {
-      clearTimeout(flushTimerRef.current);
-      flushTimerRef.current = null;
+    if (flushFrameRef.current !== null) {
+      cancelAnimationFrame(flushFrameRef.current);
+      flushFrameRef.current = null;
     }
+    pendingRef.current = [];
+    finishRef.current = null;
+    frameTimeRef.current = null;
+    characterCreditRef.current = 0;
+    finalRateRef.current = 0;
   }, []);
 
   const flushStream = useCallback(() => {
     cancelScheduledFlush();
-    setContent(contentRef.current);
+    shownRef.current = contentRef.current;
+    setContent(shownRef.current);
     setThinking(thinkingRef.current);
   }, [cancelScheduledFlush]);
 
   const scheduleFlush = useCallback(() => {
-    if (flushTimerRef.current !== null) return;
-    flushTimerRef.current = setTimeout(() => {
-      flushTimerRef.current = null;
-      setContent(contentRef.current);
+    if (flushFrameRef.current !== null) return;
+
+    const reveal = (now: number) => {
+      flushFrameRef.current = null;
+      const queue = pendingRef.current;
+      const elapsed = Math.min(34, now - (frameTimeRef.current ?? now - 16));
+      const rate = Math.max(70, finishRef.current ? finalRateRef.current : queue.length * 2.5);
+      frameTimeRef.current = now;
+      characterCreditRef.current += rate * elapsed / 1000;
+      const count = Math.min(queue.length, Math.floor(characterCreditRef.current));
+      if (count) {
+        shownRef.current += queue.splice(0, count).join("");
+        characterCreditRef.current -= count;
+        setContent(shownRef.current);
+      }
       setThinking(thinkingRef.current);
-    }, 32);
+
+      if (queue.length) {
+        flushFrameRef.current = requestAnimationFrame(reveal);
+      } else {
+        frameTimeRef.current = null;
+        characterCreditRef.current = 0;
+        const finish = finishRef.current;
+        finishRef.current = null;
+        finish?.();
+      }
+    };
+
+    flushFrameRef.current = requestAnimationFrame(reveal);
   }, []);
+
+  const appendContent = useCallback((delta: string) => {
+    const characters = Array.from(delta);
+    if (!characters.length) return;
+    if (!contentRef.current) {
+      shownRef.current = characters.shift()!;
+      setContent(shownRef.current);
+    }
+    contentRef.current += delta;
+    pendingRef.current.push(...characters);
+    scheduleFlush();
+  }, [scheduleFlush]);
+
+  const finishStream = useCallback((requestId: number) => {
+    const complete = () => {
+      if (requestId !== requestIdRef.current) return;
+      const completed = contentRef.current;
+      if (completed) {
+        setHistory((history) => [...history, { role: "assistant", content: completed }]);
+      }
+      setThinking(thinkingRef.current);
+      setContent("");
+      contentRef.current = "";
+      shownRef.current = "";
+      setPhase("done");
+    };
+    if (pendingRef.current.length) {
+      finishRef.current = complete;
+      finalRateRef.current = pendingRef.current.length / 0.34;
+      scheduleFlush();
+    } else {
+      complete();
+    }
+  }, [scheduleFlush]);
 
   useEffect(() => {
     window.doubaoAPI
@@ -107,6 +174,7 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
     setPhase("idle");
     contentRef.current = "";
     thinkingRef.current = "";
+    shownRef.current = "";
     setContent("");
     setPhonetics(null);
     setThinking("");
@@ -117,13 +185,14 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
   }, [abort]);
 
   const runInitial = useCallback(
-    async (action: Action, text: string, images: File[] = []) => {
+    async (action: Action, text: string, images: File[] = [], targetLang = "zh") => {
       if (!text.trim() && images.length === 0) return;
       abort();
       setPhase("streaming");
       const requestId = requestIdRef.current;
       contentRef.current = "";
       thinkingRef.current = "";
+      shownRef.current = "";
       setContent("");
       setPhonetics(null);
       setThinking("");
@@ -163,7 +232,7 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
         for (const image of images) form.append("images", image);
         if (action === "translate") {
           form.append("source_lang", "auto");
-          form.append("target_lang", "zh");
+          form.append("target_lang", targetLang);
         } else {
           form.append("style", "concise");
         }
@@ -175,6 +244,7 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
         requestBody,
         {
           onPhonetics: (d) => {
+            if (requestId !== requestIdRef.current) return;
             setPhonetics(d.phonetics as Phonetics);
           },
           onThinking: (delta) => {
@@ -184,20 +254,11 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
           },
           onDelta: (delta) => {
             if (requestId !== requestIdRef.current) return;
-            contentRef.current += delta;
-            scheduleFlush();
+            appendContent(delta);
           },
           onDone: () => {
             if (requestId !== requestIdRef.current) return;
-            cancelScheduledFlush();
-            setPhase("done");
-            const completed = contentRef.current;
-            if (completed) {
-              setHistory((h) => [...h, { role: "assistant", content: completed }]);
-            }
-            setThinking(thinkingRef.current);
-            setContent("");
-            contentRef.current = "";
+            finishStream(requestId);
           },
           onError: ({ code, message }) => {
             if (requestId !== requestIdRef.current) return;
@@ -209,7 +270,7 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
         { signal: controller.signal, headers: thinkingHeaders() }
       );
     },
-    [abort, cancelScheduledFlush, flushStream, scheduleFlush, thinkingEnabled]
+    [abort, appendContent, finishStream, flushStream, scheduleFlush, thinkingEnabled]
   );
 
   const ask = useCallback(
@@ -219,6 +280,7 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
       setPhase("streaming");
       const requestId = requestIdRef.current;
       contentRef.current = "";
+      shownRef.current = "";
       thinkingRef.current = "";
       setThinking("");
       setError(null);
@@ -271,20 +333,11 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
           },
           onDelta: (delta) => {
             if (requestId !== requestIdRef.current) return;
-            contentRef.current += delta;
-            scheduleFlush();
+            appendContent(delta);
           },
           onDone: () => {
             if (requestId !== requestIdRef.current) return;
-            cancelScheduledFlush();
-            setPhase("done");
-            const completed = contentRef.current;
-            if (completed) {
-              setHistory((h) => [...h, { role: "assistant", content: completed }]);
-            }
-            setThinking(thinkingRef.current);
-            setContent("");
-            contentRef.current = "";
+            finishStream(requestId);
           },
           onError: ({ code, message }) => {
             if (requestId !== requestIdRef.current) return;
@@ -296,8 +349,18 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
         { signal: controller.signal, headers: thinkingHeaders() }
       );
     },
-    [abort, cancelScheduledFlush, flushStream, history, initialAction, scheduleFlush, thinkingEnabled]
+    [abort, appendContent, finishStream, flushStream, history, initialAction, scheduleFlush, thinkingEnabled]
   );
+
+  const stop = useCallback(() => {
+    const partial = shownRef.current;
+    abort();
+    if (partial) setHistory((items) => [...items, { role: "assistant", content: partial }]);
+    setThinking(thinkingRef.current);
+    contentRef.current = "";
+    setContent("");
+    setPhase("done");
+  }, [abort]);
 
   // 切换思考模式：更新本地 state + 持久化到主进程设置
   const toggleThinking = useCallback(() => {
@@ -328,7 +391,7 @@ export function useSelectionAction(selectedText: string): UseSelectionAction {
     runInitial,
     ask,
     toggleThinking,
-    abort,
+    stop,
     reset,
   };
 }

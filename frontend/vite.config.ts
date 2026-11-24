@@ -4,7 +4,25 @@ import path from "node:path";
 
 // 多入口:主窗口 / 划词浮窗 / 悬浮按钮
 export default defineConfig({
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: "desktop-content-policy",
+      apply: "build",
+      transformIndexHtml() {
+        return [{
+          tag: "meta",
+          attrs: {
+            "http-equiv": "Content-Security-Policy",
+            content: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+              + "img-src 'self' data: blob:; connect-src http://127.0.0.1:* http://localhost:* data:; "
+              + "object-src 'none'; base-uri 'none'; form-action 'none'",
+          },
+          injectTo: "head-prepend",
+        }];
+      },
+    },
+  ],
   base: "./",
   resolve: {
     alias: {

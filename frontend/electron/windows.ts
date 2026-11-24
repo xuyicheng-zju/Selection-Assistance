@@ -4,7 +4,7 @@
  * 悬浮按钮窗 / 浮窗：frameless、alwaysOnTop、skipTaskbar，贴鼠标位置。
  * 主窗口：常规窗口，关闭时隐藏到托盘。
  */
-import { BrowserWindow, screen, shell } from "electron";
+import { BrowserWindow, nativeTheme, screen, shell } from "electron";
 import path from "node:path";
 import { resolveAppIconPath } from "./desktop";
 
@@ -12,6 +12,19 @@ const DEV = process.env.NODE_ENV === "development";
 
 /** 修正入口加载（DEV→URL，生产→文件） */
 function load(win: BrowserWindow, file: string): Promise<void> {
+  const openExternal = (url: string) => {
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
+  };
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    openExternal(url);
+    return { action: "deny" };
+  });
+  win.webContents.on("will-navigate", (event, url) => {
+    if (url !== win.webContents.getURL()) {
+      event.preventDefault();
+      openExternal(url);
+    }
+  });
   if (DEV) {
     return win.loadURL(`http://localhost:5173/${file}`);
   }
@@ -21,13 +34,17 @@ function load(win: BrowserWindow, file: string): Promise<void> {
 export function createMainWindow(showOnReady = true): BrowserWindow {
   const win = new BrowserWindow({
     width: 880,
-    height: 700,
+    height: 740,
     minWidth: 760,
     minHeight: 600,
     title: "划词助手",
     icon: resolveAppIconPath(),
     show: false,
-    backgroundColor: "#f9fafb",
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#12141a" : "#f4f6fa",
+    ...(process.platform === "darwin" ? {
+      titleBarStyle: "hiddenInset",
+      trafficLightPosition: { x: 18, y: 18 },
+    } as const : {}),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -35,12 +52,6 @@ export function createMainWindow(showOnReady = true): BrowserWindow {
       preload: path.join(__dirname, "preload.js"),
       devTools: DEV,
     },
-  });
-
-  // 外链在系统浏览器打开
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: "deny" };
   });
 
   if (DEV) win.webContents.openDevTools({ mode: "detach" });
@@ -58,8 +69,8 @@ export function createMainWindow(showOnReady = true): BrowserWindow {
 /** 悬浮按钮窗：两个小按钮，贴鼠标右下方 */
 export function createActionButtonWindow(): BrowserWindow {
   const win = new BrowserWindow({
-    width: 130,
-    height: 40,
+    width: 218,
+    height: 42,
     frame: false,
     resizable: false,
     movable: false,
@@ -85,12 +96,15 @@ export function createActionButtonWindow(): BrowserWindow {
 }
 
 /** 划词浮窗：展示翻译/解释结果 */
+export const COMPACT_POPUP_SIZE = [360, 420] as const;
+
 export function createPopupWindow(): BrowserWindow {
+  const isMac = process.platform === "darwin";
   const win = new BrowserWindow({
-    width: 440,
-    height: 540,
-    minWidth: 360,
-    minHeight: 300,
+    width: COMPACT_POPUP_SIZE[0],
+    height: COMPACT_POPUP_SIZE[1],
+    minWidth: 320,
+    minHeight: 220,
     frame: false,
     resizable: true,
     alwaysOnTop: true,
@@ -98,8 +112,10 @@ export function createPopupWindow(): BrowserWindow {
     show: false,
     icon: resolveAppIconPath(),
     transparent: false,
-    backgroundColor: "#ffffff",
+    hasShadow: true,
+    backgroundColor: isMac ? "#00000000" : (nativeTheme.shouldUseDarkColors ? "#242221" : "#ffffff"),
     roundedCorners: true,
+    ...(isMac ? { vibrancy: "popover", visualEffectState: "active" } as const : {}),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

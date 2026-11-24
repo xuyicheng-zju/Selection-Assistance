@@ -16,6 +16,7 @@ from ..prompts import (
     vision_explain_user,
     vision_translate_user,
 )
+from .codex import CodexClient
 from .qwen_vl import QwenVLClient, QwenVLError, VChatResult, VStreamChunk
 
 
@@ -26,7 +27,7 @@ class OcrResult:
     model: str
 
 
-async def ocr(qwen_vl: QwenVLClient, image_urls: list[str]) -> OcrResult:
+async def ocr(qwen_vl: QwenVLClient | CodexClient, image_urls: list[str]) -> OcrResult:
     """纯 OCR 提取文字。"""
     result = await qwen_vl.chat(
         prompt=OCR_USER, image_urls=image_urls, system=OCR_SYSTEM, temperature=0.0
@@ -37,7 +38,7 @@ async def ocr(qwen_vl: QwenVLClient, image_urls: list[str]) -> OcrResult:
 
 
 async def translate_with_image(
-    qwen_vl: QwenVLClient,
+    qwen_vl: QwenVLClient | CodexClient,
     image_urls: list[str],
     text: Optional[str],
     target_lang: str,
@@ -51,7 +52,7 @@ async def translate_with_image(
 
 
 async def explain_with_image(
-    qwen_vl: QwenVLClient,
+    qwen_vl: QwenVLClient | CodexClient,
     image_urls: list[str],
     text: Optional[str],
     context: Optional[str],
@@ -65,7 +66,7 @@ async def explain_with_image(
 
 
 async def stream_explain_with_image(
-    qwen_vl: QwenVLClient,
+    qwen_vl: QwenVLClient | CodexClient,
     image_urls: list[str],
     text: Optional[str],
     context: Optional[str],
@@ -80,7 +81,7 @@ async def stream_explain_with_image(
 
 
 async def stream_translate_with_image(
-    qwen_vl: QwenVLClient,
+    qwen_vl: QwenVLClient | CodexClient,
     image_urls: list[str],
     text: Optional[str],
     target_lang: str,

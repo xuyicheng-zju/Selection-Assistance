@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import AsyncIterator, Optional
 
 from ..prompts import CHAT_SYSTEM, build_chat_messages, build_vision_chat_prompt
+from .codex import CodexClient
 from .deepseek import DeepSeekClient, DeepSeekError, StreamChunk
 from .qwen_vl import QwenVLClient, VStreamChunk
 
@@ -26,7 +27,7 @@ async def chat(
     initial_action: str,
     history: list[dict],
     question: str,
-    deepseek: DeepSeekClient,
+    deepseek: DeepSeekClient | CodexClient,
     enable_thinking: Optional[bool] = None,
 ) -> ChatOutput:
     messages = build_chat_messages(selected_text, initial_action, history, question)
@@ -46,7 +47,7 @@ def stream_chat(
     initial_action: str,
     history: list[dict],
     question: str,
-    deepseek: DeepSeekClient,
+    deepseek: DeepSeekClient | CodexClient,
     enable_thinking: Optional[bool] = None,
 ) -> AsyncIterator[StreamChunk]:
     messages = build_chat_messages(selected_text, initial_action, history, question)
@@ -62,14 +63,14 @@ def stream_chat_with_images(
     history: list[dict],
     question: str,
     image_urls: list[str],
-    qwen_vl: QwenVLClient,
+    qwen_vl: QwenVLClient | CodexClient,
 ) -> AsyncIterator[VStreamChunk]:
     prompt = build_vision_chat_prompt(
         selected_text, initial_action, history, question
     )
     return qwen_vl.stream(
-        prompt,
-        image_urls,
+        prompt=prompt,
+        image_urls=image_urls,
         system=CHAT_SYSTEM,
         temperature=0.35,
         max_tokens=2048,

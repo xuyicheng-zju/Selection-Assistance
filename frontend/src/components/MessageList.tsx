@@ -13,6 +13,8 @@ interface Props {
   streaming: boolean;
   /** 流式中消息的角色（user=正在发问，assistant=正在回答） */
   streamingRole: "user" | "assistant";
+  /** 翻译/解释模式下隐藏首条合成的 user 回显气泡（顶部上下文栏已展示） */
+  hideInitialUserEcho?: boolean;
 }
 
 /** 聊天式消息列表：历史消息 + 当前流式消息 */
@@ -21,6 +23,7 @@ export function MessageList({
   streamingContent,
   streaming,
   streamingRole,
+  hideInitialUserEcho = false,
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
@@ -41,8 +44,19 @@ export function MessageList({
     stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 56;
   };
 
+  const visibleHistory = useMemo(
+    () =>
+      history
+        .map((msg, index) => ({ msg, index }))
+        .filter(
+          ({ msg, index }) =>
+            !(hideInitialUserEcho && index === 0 && msg.role === "user")
+        ),
+    [history, hideInitialUserEcho]
+  );
+
   // 空状态
-  if (history.length === 0 && !streamingContent) {
+  if (visibleHistory.length === 0 && !streamingContent) {
     return (
       <div className="empty-result" role="status" aria-live="polite">
         {streaming ? (
@@ -62,8 +76,8 @@ export function MessageList({
       aria-live="polite"
       aria-busy={streaming}
     >
-      {history.map((msg, i) => (
-        <MessageBubble key={i} msg={msg} />
+      {visibleHistory.map(({ msg, index }) => (
+        <MessageBubble key={index} msg={msg} />
       ))}
       {/* 当前流式消息 */}
       {streamingContent ? (
@@ -90,8 +104,8 @@ const MessageBubble = memo(function MessageBubble({
 }) {
   const isUser = msg.role === "user";
   const html = useMemo(
-    () => (isUser ? "" : renderMarkdown(msg.content)),
-    [isUser, msg.content]
+    () => (isUser || streaming ? "" : renderMarkdown(msg.content)),
+    [isUser, streaming, msg.content]
   );
   return (
     <div className={isUser ? "user-row" : "assistant-row"}>
@@ -102,10 +116,9 @@ const MessageBubble = memo(function MessageBubble({
           <div className="whitespace-pre-wrap break-words">{msg.content}</div>
         ) : (
           <div className="md-body">
-            <div dangerouslySetInnerHTML={{ __html: html }} />
-            {streaming && (
-              <span className="stream-caret" aria-hidden="true" />
-            )}
+            {streaming
+              ? <div className="streaming-text">{msg.content}<span className="stream-caret" aria-hidden="true" /></div>
+              : <div dangerouslySetInnerHTML={{ __html: html }} />}
           </div>
         )}
       </div>

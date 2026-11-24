@@ -11,6 +11,7 @@ from typing import AsyncIterator, Optional
 from ..prompts import TRANSLATE_SYSTEM, translate_user_prompt
 from ..schemas import Phonetics
 from . import vision as vision_svc
+from .codex import CodexClient
 from .deepseek import DeepSeekClient, DeepSeekError, StreamChunk
 from .phonetics import get_phonetics, classify
 from .qwen_vl import QwenVLClient, VStreamChunk
@@ -32,7 +33,7 @@ async def translate_text(
     source_lang: str,
     target_lang: str,
     settings,
-    deepseek: DeepSeekClient,
+    deepseek: DeepSeekClient | CodexClient,
     enable_thinking: Optional[bool] = None,
 ) -> TranslateOutput:
     """纯文本翻译（DeepSeek）。"""
@@ -60,7 +61,7 @@ async def translate_image(
     text: Optional[str],
     target_lang: str,
     image_urls: list[str],
-    qwen_vl: QwenVLClient,
+    qwen_vl: QwenVLClient | CodexClient,
 ) -> TranslateOutput:
     """含图翻译（Qwen-VL）。"""
     result = await vision_svc.translate_with_image(qwen_vl, image_urls, text, target_lang)
@@ -80,7 +81,7 @@ async def stream_translate_text(
     source_lang: str,
     target_lang: str,
     settings,
-    deepseek: DeepSeekClient,
+    deepseek: DeepSeekClient | CodexClient,
     enable_thinking: Optional[bool] = None,
 ) -> tuple[Phonetics, AsyncIterator[StreamChunk]]:
     """纯文本流式翻译。先返回音标，再返回流式 chunk 迭代器。"""
@@ -100,7 +101,7 @@ def stream_translate_image(
     text: Optional[str],
     target_lang: str,
     image_urls: list[str],
-    qwen_vl: QwenVLClient,
+    qwen_vl: QwenVLClient | CodexClient,
 ) -> AsyncIterator[VStreamChunk]:
     return vision_svc.stream_translate_with_image(qwen_vl, image_urls, text, target_lang)
 
